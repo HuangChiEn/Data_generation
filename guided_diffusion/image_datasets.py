@@ -143,6 +143,7 @@ class ImageDataset(Dataset):
 
         if self.local_instances is not None:
             instance_path = self.local_instances[idx] # DEBUG: from classes to instances, may affect CelebA
+            #print(instance_path)
             with bf.BlobFile(instance_path, "rb") as f:
                 pil_instance = Image.open(f)
                 pil_instance.load()

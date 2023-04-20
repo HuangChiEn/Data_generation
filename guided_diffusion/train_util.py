@@ -40,6 +40,7 @@ class TrainLoop:
         schedule_sampler=None,
         weight_decay=0.0,
         lr_anneal_steps=0,
+        training_step=2000,
     ):
         self.model = model
         self.diffusion = diffusion
@@ -62,6 +63,7 @@ class TrainLoop:
         self.schedule_sampler = schedule_sampler or UniformSampler(diffusion)
         self.weight_decay = weight_decay
         self.lr_anneal_steps = lr_anneal_steps
+        self.training_step = training_step
 
         self.step = 0
         self.resume_step = 0
@@ -162,16 +164,24 @@ class TrainLoop:
             not self.lr_anneal_steps
             or self.step + self.resume_step < self.lr_anneal_steps
         ):
+            # print(self.step,"/",self.lr_anneal_steps)
             batch, cond = next(self.data)
             cond = self.preprocess_input(cond)
             self.run_step(batch, cond)
             if self.step % self.log_interval == 0:
                 logger.dumpkvs()
+
             if self.step % self.save_interval == 0:
                 self.save()
                 # Run for a finite amount of time in integration tests.
                 if os.environ.get("DIFFUSION_TRAINING_TEST", "") and self.step > 0:
                     return
+                if self.step > self.training_step:
+                    return
+
+            if self.step > self.training_step:
+                self.save()
+                return
             self.step += 1
         # Save the last checkpoint if it wasn't already saved.
         if (self.step - 1) % self.save_interval != 0:

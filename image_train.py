@@ -59,6 +59,7 @@ def main():
         schedule_sampler=schedule_sampler,
         weight_decay=args.weight_decay,
         lr_anneal_steps=args.lr_anneal_steps,
+        training_step=args.training_step,
     ).run_loop()
 
 
@@ -75,11 +76,12 @@ def create_argparser():
         ema_rate="0.9999",  # comma-separated list of EMA values
         drop_rate=0.0,
         log_interval=10,
-        save_interval=10000,
+        save_interval=1000,
         resume_checkpoint="",
         use_fp16=False,
         fp16_scale_growth=1e-3,
-        is_train=True
+        is_train=True,
+        training_step=2000
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

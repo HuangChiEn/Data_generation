@@ -22,6 +22,7 @@ from guided_diffusion.script_util import (
 
 
 def main():
+    print("start")
     args = create_argparser().parse_args()
 
     dist_util.setup_dist()

@@ -54,6 +54,7 @@ Extensive experiments on three benchmark datasets demonstrate the effectiveness 
 - Linux
 - Python 3
 - CPU or NVIDIA GPU + CUDA CuDNN
+- MPI([openmpi](https://www.open-mpi.org/) Link:[how install](https://blog.csdn.net/liu_feng_zi_/article/details/107429347) better than [mpich](https://www.mpich.org/downloads/) Link:[how install](https://cloud.tencent.com/developer/article/2111003))
 
 ## Dataset Preparation
 The Cityscapes and ADE20K dataset can be downloaded and prepared following [SPADE](https://github.com/NVlabs/SPADE.git). The CelebAMask-HQ can be downloaded from [CelebAMask-HQ](https://github.com/switchablenorms/CelebAMask-HQ), you need to to integrate the separated annotations into an image file (the format like other datasets, e.g. Cityscapes and ADE20K). 
@@ -64,11 +65,11 @@ The Cityscapes and ADE20K dataset can be downloaded and prepared following [SPAD
 
 - Train the SDM model:
 ```bash
-export OPENAI_LOGDIR='OUTPUT/ADE20K-SDM-256CH'
-mpiexec -n 8 python image_train.py --data_dir ./data/ade20k --dataset_mode ade20k --lr 1e-4 --batch_size 4 --attention_resolutions 32,16,8 --diffusion_steps 1000 \
+export OPENAI_LOGDIR='./OUTPUT/Cityscapes-SDM-256CH'
+mpiexec -n 4 python image_train.py --data_dir /data1/dataset/Cityscapes --dataset_mode cityscapes --lr 1e-4 --batch_size 4 --attention_resolutions 32,16,8 --diffusion_steps 1000 \
                                    --image_size 256 --learn_sigma True --noise_schedule linear --num_channels 256 --num_head_channels 64 --num_res_blocks 2  \
-                                   --resblock_updown True --use_fp16 True --use_scale_shift_norm True --use_checkpoint True --num_classes 151 \
-	                           --class_cond True --no_instance True
+                                   --resblock_updown True --use_fp16 True --use_scale_shift_norm True --use_checkpoint True --num_classes 35 \
+	                           --class_cond True --no_instance False
 ```
 
 - Fine-tune the SDM model:
