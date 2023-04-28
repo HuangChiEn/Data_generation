@@ -4,6 +4,8 @@ import inspect
 from . import gaussian_diffusion as gd
 from .respace import SpacedDiffusion, space_timesteps
 from .unet import SuperResModel, UNetModel, EncoderUNetModel
+from diffusers import AutoencoderKL
+import torch
 
 NUM_CLASSES = 1000
 
@@ -62,6 +64,7 @@ def model_and_diffusion_defaults():
         use_fp16=False,
         use_new_attention_order=False,
         no_instance=False,
+        use_vae=True,
     )
     res.update(diffusion_defaults())
     return res
@@ -99,6 +102,7 @@ def create_model_and_diffusion(
     resblock_updown,
     use_fp16,
     use_new_attention_order,
+    use_vae,
 ):
     model = create_model(
         image_size,
@@ -130,7 +134,16 @@ def create_model_and_diffusion(
         rescale_learned_sigmas=rescale_learned_sigmas,
         timestep_respacing=timestep_respacing,
     )
-    return model, diffusion
+    # load the pretrain weight from SD
+    if use_vae:
+        vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae")
+        if use_fp16:
+            vae.to(dtype=torch.float16)
+        vae.requires_grad_(False)
+    else:
+        vae = None
+
+    return model, diffusion, vae
 
 
 def create_model(
@@ -152,9 +165,13 @@ def create_model(
     use_fp16=False,
     use_new_attention_order=False,
     no_instance=False,
+    use_vae=True,
 ):
     if channel_mult == "":
-        if image_size == 512:
+        # TODO : design 1024 x 2048 res spec
+        if use_vae:
+            channel_mult = (1, 2, 3, 4)
+        elif image_size == 512:
             channel_mult = (0.5, 1, 1, 2, 2, 4, 4)
         elif image_size == 256:
             channel_mult = (1, 1, 2, 2, 4, 4)
@@ -162,6 +179,8 @@ def create_model(
             channel_mult = (1, 1, 2, 3, 4)
         elif image_size == 64:
             channel_mult = (1, 2, 3, 4)
+        elif image_size == 270:
+            channel_mult = (1, 1, 2, 4, 4)
         else:
             raise ValueError(f"unsupported image size: {image_size}")
     else:
@@ -173,11 +192,12 @@ def create_model(
 
     num_classes = num_classes if no_instance else num_classes + 1
 
+    input_channel = 4 if use_vae else 3
     return UNetModel(
         image_size=image_size,
-        in_channels=3,
+        in_channels=input_channel,
         model_channels=num_channels,
-        out_channels=(3 if not learn_sigma else 6),
+        out_channels=(input_channel if not learn_sigma else input_channel*2),
         num_res_blocks=num_res_blocks,
         attention_resolutions=tuple(attention_ds),
         dropout=dropout,
@@ -244,8 +264,11 @@ def create_classifier(
     classifier_use_scale_shift_norm,
     classifier_resblock_updown,
     classifier_pool,
+    use_vae=True,
 ):
-    if image_size == 512:
+    if use_vae:
+        channel_mult = (1, 2, 3, 4)
+    elif image_size == 512:
         channel_mult = (0.5, 1, 1, 2, 2, 4, 4)
     elif image_size == 256:
         channel_mult = (1, 1, 2, 2, 4, 4)
@@ -253,6 +276,8 @@ def create_classifier(
         channel_mult = (1, 1, 2, 3, 4)
     elif image_size == 64:
         channel_mult = (1, 2, 3, 4)
+    elif image_size == 270:
+        channel_mult = (1, 1, 2, 4, 4)
     else:
         raise ValueError(f"unsupported image size: {image_size}")
 
@@ -260,9 +285,11 @@ def create_classifier(
     for res in classifier_attention_resolutions.split(","):
         attention_ds.append(image_size // int(res))
 
+    input_channel = 4 if use_vae else 3
+
     return EncoderUNetModel(
         image_size=image_size,
-        in_channels=3,
+        in_channels=input_channel,
         model_channels=classifier_width,
         out_channels=1000,
         num_res_blocks=classifier_depth,
@@ -359,8 +386,9 @@ def sr_create_model(
     use_fp16,
 ):
     _ = small_size  # hack to prevent unused variable
-
-    if large_size == 512:
+    if use_vae:
+        channel_mult = (1, 2, 3, 4)
+    elif large_size == 512:
         channel_mult = (1, 1, 2, 2, 4, 4)
     elif large_size == 256:
         channel_mult = (1, 1, 2, 2, 4, 4)
@@ -372,12 +400,13 @@ def sr_create_model(
     attention_ds = []
     for res in attention_resolutions.split(","):
         attention_ds.append(large_size // int(res))
+    input_channel = 4 if use_vae else 3
 
     return SuperResModel(
         image_size=large_size,
-        in_channels=3,
+        in_channels=input_channel,
         model_channels=num_channels,
-        out_channels=(3 if not learn_sigma else 6),
+        out_channels=(input_channel if not learn_sigma else input_channel*2),
         num_res_blocks=num_res_blocks,
         attention_resolutions=tuple(attention_ds),
         dropout=dropout,

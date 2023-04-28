@@ -821,7 +821,18 @@ class UNetModel(nn.Module):
             hs.append(h)
         h = self.middle_block(h, y, emb)
         for module in self.output_blocks:
-            h = th.cat([h, hs.pop()], dim=1)
+            temp = hs.pop()
+
+            # copy padding to match the downsample size
+            if h.shape[2] != temp.shape[2]:
+                p1d = (0, 0, 0, 1)
+                h = F.pad(h, p1d, "replicate")
+
+            if h.shape[3] != temp.shape[3]:
+                p2d = (0, 1, 0, 0)
+                h = F.pad(h, p2d, "replicate")
+
+            h = th.cat([h, temp], dim=1)
             h = module(h, y, emb)
         h = h.type(x.dtype)
         return self.out(h)

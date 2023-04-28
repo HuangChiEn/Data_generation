@@ -1,31 +1,38 @@
-# Semantic Image Synthesis via Diffusion Models (SDM)
+# VAE Semantic Image Synthesis via Diffusion Models (VAE-SDM)
 
-&nbsp;
+### Todo
 
-<img src='assets\results.png' align="left">  
-
-&nbsp;
-
-<img src='assets/diffusion.png' align="left">
-
-&nbsp;
-
-### [Paper](https://arxiv.org/abs/2207.00050)
-
-[Weilun Wang](https://scholar.google.com/citations?hl=zh-CN&user=YfV4aCQAAAAJ), [Jianmin Bao](https://scholar.google.com/citations?hl=zh-CN&user=hjwvkYUAAAAJ), [Wengang Zhou](https://scholar.google.com/citations?hl=zh-CN&user=8s1JF8YAAAAJ), [Dongdong Chen](https://scholar.google.com/citations?hl=zh-CN&user=sYKpKqEAAAAJ), [Dong Chen](https://scholar.google.com/citations?hl=zh-CN&user=_fKSYOwAAAAJ), [Lu Yuan](https://scholar.google.com/citations?hl=zh-CN&user=k9TsUVsAAAAJ), [Houqiang Li](https://scholar.google.com/citations?hl=zh-CN&user=7sFMIKoAAAAJ),
-
-## Abstract
-
-We provide our PyTorch implementation of Semantic Image Synthesis via Diffusion Models (SDM). 
-In this paper, we propose a novel framework based on DDPM for semantic image synthesis.
-Unlike previous conditional diffusion model directly feeds the semantic layout and noisy image as input to a U-Net structure, which may not fully leverage the information in the input semantic mask,
-our framework processes semantic layout and noisy image differently.
-It feeds noisy image to the encoder of the U-Net structure while the semantic layout to the decoder by multi-layer spatially-adaptive normalization operators. 
-To further improve the generation quality and semantic interpretability in semantic image synthesis, we introduce the classifier-free guidance sampling strategy, which acknowledge the scores of an unconditional model for sampling process.
-Extensive experiments on three benchmark datasets demonstrate the effectiveness of our proposed method, achieving state-of-the-art performance in terms of fidelity (FID) and diversity (LPIPS).
+- [ ] Train the SDE with the CityScape Dataset
+  - [x] Implementation of the Cityscape results from the SDM paper
+  - [ ] Training SDM with the 270X360 @harry
+- [ ] Adding the VAE   
+  - [ ] Codding in training @harry
+  - [ ] Codding in inference @harry
+- [ ] Optimize code and other works
+  - [ ] Refactor the official code (Change to the pytorch lightning)@harry @HuangChiEn
 
 
-## Example Results
+[//]: # (&nbsp;)
+
+[//]: # ()
+[//]: # (<img src='assets\results.png' align="left">  )
+
+[//]: # ()
+[//]: # (&nbsp;)
+
+[//]: # ()
+[//]: # (<img src='assets/diffusion.png' align="left">)
+
+[//]: # ()
+[//]: # (&nbsp;)
+
+[//]: # ()
+
+### [Reference Paper](https://arxiv.org/abs/2207.00050) : Semantic Image Synthesis via Diffusion Models (SDM)
+
+### [Reference Code](https://github.com/WeilunWang/semantic-diffusion-model) : https://github.com/WeilunWang/semantic-diffusion-model
+
+## SDM Example Results
 * **Cityscapes:**
 
 <p align='center'>  
@@ -74,23 +81,22 @@ mpiexec -n 4 python image_train.py --data_dir /data1/dataset/Cityscapes --datase
 
 - Fine-tune the SDM model:
 ```bash
-export OPENAI_LOGDIR='OUTPUT/ADE20K-SDM-256CH-FINETUNE'
-mpiexec -n 8 python image_train.py --data_dir ./data/ade20k --dataset_mode ade20k --lr 2e-5 --batch_size 4 --attention_resolutions 32,16,8 --diffusion_steps 1000 \
-                                   --image_size 256 --learn_sigma True --noise_schedule linear --num_channels 256 --num_head_channels 64 --num_res_blocks 2 \
-                                   --resblock_updown True --use_fp16 True --use_scale_shift_norm True --use_checkpoint True --num_classes 151 --class_cond True \
-                                   --no_instance True --drop_rate 0.2 --resume_checkpoint OUTPUT/ADE20K-SDM-256CH/model.pt
+export OPENAI_LOGDIR='../OUTPUT/Cityscapes-SDM-256CH-10epoch-FINETUNE'
+mpiexec --allow-run-as-root -np 4 python ../image_train.py --data_dir /data1/dataset/Cityscapes --dataset_mode cityscapes --lr 2e-5 --batch_size 4 --attention_resolutions 32,16,8 --diffusion_steps 1000 --image_size 256 --learn_sigma True \
+	     --noise_schedule linear --num_channels 256 --num_head_channels 64 --num_res_blocks 2 --resblock_updown True --use_fp16 True --use_scale_shift_norm True --use_checkpoint True --num_classes 34 \
+	     --class_cond True --no_instance False --drop_rate 0.2 --resume_checkpoint ../OUTPUT/Cityscapes-SDM-256CH-10epoch/model.pt --training_step 2000
 ```
 
 - Test the SDM model:
 ```bash
-mpiexec -n 8 python image_sample.py --data_dir ./data/ade20k --dataset_mode ade20k --attention_resolutions 32,16,8 --diffusion_steps 1000 \
-                                    --image_size 256 --learn_sigma True --noise_schedule linear --num_channels 256 --num_head_channels 64 \ 
-                                    --num_res_blocks 2 --resblock_updown True --use_fp16 True --use_scale_shift_norm True --num_classes 151 \
-                                    --class_cond True --no_instance True --batch_size 2 --num_samples 2000 --s 1.5 \
-                                    --model_path OUTPUT/ADE20K-SDM-256CH-FINETUNE/ema_0.9999_best.pt --results_path RESULTS/ADE20K-SDM-256CH
+export OPENAI_LOGDIR='../OUTPUT/Cityscapes360-SDM-256CH-12kstep-TEST'
+mpiexec --allow-run-as-root -np 4 python ../image_sample.py --data_dir /data1/dataset/Cityscapes --dataset_mode cityscapes --attention_resolutions 32,16,8 --diffusion_steps 1000 --image_size 360 --learn_sigma True \
+       --noise_schedule linear --num_channels 256 --num_head_channels 64 --num_res_blocks 2 --resblock_updown True --use_fp16 True --use_scale_shift_norm True --num_classes 34 \
+       --class_cond True --no_instance False --batch_size 4 --num_samples 8 --model_path ../OUTPUT/Cityscapes360-SDM-256CH-500epoch/model012000.pt --results_path ../RESULTS/Cityscapes360-SDM-256CH-12kstep --s 1.5
+
 ```
 
-Please refer to the 'scripts/ade20.sh' for more details.
+Please refer to the 'scripts/cityscap.sh' for more details.
 
 ### Apply a pre-trained NEGCUT model and evaluate
 
@@ -123,3 +129,4 @@ python evaluations/lpips.py GENERATED_IMAGES_DIR
 
 ### Acknowledge
 Our code is developed based on [guided-diffusion](https://github.com/openai/guided-diffusion). We also thank "test_with_FID.py" in [OASIS](https://github.com/boschresearch/OASIS) for FID computation, "lpips.py" in [stargan-v2](https://github.com/clovaai/stargan-v2) for LPIPS computation.
+

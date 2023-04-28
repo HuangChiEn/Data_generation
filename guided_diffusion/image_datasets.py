@@ -7,6 +7,7 @@ import blobfile as bf
 from mpi4py import MPI
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
+import cv2
 
 
 def load_data(
@@ -78,7 +79,7 @@ def load_data(
 
     if deterministic:
         loader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=False, num_workers=1, drop_last=True
+            dataset, batch_size=batch_size, shuffle=False, num_workers=8, drop_last=True
         )
     else:
         loader = DataLoader(
@@ -112,12 +113,14 @@ class ImageDataset(Dataset):
         num_shards=1,
         random_crop=False,
         random_flip=True,
-        is_train=True
+        is_train=True,
+        sub_size=None
     ):
         super().__init__()
         self.is_train = is_train
         self.dataset_mode = dataset_mode
         self.resolution = resolution
+        self.sub_size = sub_size
         self.local_images = image_paths[shard:][::num_shards]
         self.local_classes = None if classes is None else classes[shard:][::num_shards]
         self.local_instances = None if instances is None else instances[shard:][::num_shards]
@@ -152,7 +155,17 @@ class ImageDataset(Dataset):
             pil_instance = None
 
         if self.dataset_mode == 'cityscapes':
-            arr_image, arr_class, arr_instance = resize_arr([pil_image, pil_class, pil_instance], self.resolution)
+            # if self.sub_size is not None:
+            #
+            #self.resolution = (self.resolution,self.resolution*2)
+            Label_size={270 : (33, 45), 540 : (67, 90)}
+            if self.resolution in [270, 540, 1080]:
+                sc= 1080//self.resolution
+                label_size = Label_size[self.resolution]
+                arr_image, arr_class, arr_instance = resize_arr([pil_image, pil_class, pil_instance], self.resolution, True, ( self.resolution, 1440//sc ), label_size)
+            else:
+                arr_image, arr_class, arr_instance = resize_arr([pil_image, pil_class, pil_instance], self.resolution)
+
         else:
             if self.is_train:
                 if self.random_crop:
@@ -186,7 +199,7 @@ class ImageDataset(Dataset):
         return np.transpose(arr_image, [2, 0, 1]), out_dict
 
 
-def resize_arr(pil_list, image_size, keep_aspect=True):
+def resize_arr(pil_list, image_size, keep_aspect=True, crop_size=None, label_size = None):
     # We are not on a new enough PIL to support the `reducing_gap`
     # argument, which uses BOX downsampling at powers of two first.
     # Thus, we do it by hand to improve downsample quality.
@@ -205,14 +218,30 @@ def resize_arr(pil_list, image_size, keep_aspect=True):
     else:
         pil_image = pil_image.resize((image_size, image_size), resample=Image.BICUBIC)
 
-    pil_class = pil_class.resize(pil_image.size, resample=Image.NEAREST)
+    if label_size is not None:
+        pil_class = pil_class.resize( (label_size[0] * 2,label_size[0]), resample=Image.NEAREST)
+    else:
+        pil_class = pil_class.resize(pil_image.size, resample=Image.NEAREST)
+
     if pil_instance is not None:
-        pil_instance = pil_instance.resize(pil_image.size, resample=Image.NEAREST)
+        if label_size is not None:
+            pil_instance = pil_instance.resize((label_size[0] * 2, label_size[0]), resample=Image.NEAREST)
+        else:
+            pil_instance = pil_instance.resize(pil_image.size, resample=Image.NEAREST)
 
     arr_image = np.array(pil_image)
     arr_class = np.array(pil_class)
     arr_instance = np.array(pil_instance) if pil_instance is not None else None
-    return arr_image, arr_class, arr_instance
+
+    if crop_size is not None:
+        crop_x = (arr_image.shape[1] - crop_size[1]) // 2
+        crop_x_label = (arr_class.shape[1] - label_size[1]) // 2
+        arr_image = arr_image[:, crop_x: crop_x + crop_size[1]]
+        arr_class = arr_class[:, crop_x_label: crop_x_label + label_size[1]]
+        arr_instance = arr_instance[: , crop_x_label : crop_x_label + label_size[1]] if arr_instance is not None else None
+        return arr_image, arr_class, arr_instance
+    else:
+        return arr_image, arr_class, arr_instance
 
 
 def center_crop_arr(pil_list, image_size):

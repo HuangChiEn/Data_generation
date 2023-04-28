@@ -24,10 +24,11 @@ def main():
     logger.configure()
 
     logger.log("creating model and diffusion...")
-    model, diffusion = create_model_and_diffusion(
+    model, diffusion, vae = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
     model.to(dist_util.dev())
+    vae.to(dist_util.dev())
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
 
     logger.log("creating data loader...")
@@ -60,6 +61,7 @@ def main():
         weight_decay=args.weight_decay,
         lr_anneal_steps=args.lr_anneal_steps,
         training_step=args.training_step,
+        vae=vae,
     ).run_loop()
 
 
@@ -81,7 +83,7 @@ def create_argparser():
         use_fp16=False,
         fp16_scale_growth=1e-3,
         is_train=True,
-        training_step=2000
+        training_step=2000,
     )
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()

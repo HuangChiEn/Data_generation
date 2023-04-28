@@ -12,6 +12,7 @@ from . import dist_util, logger
 from .fp16_util import MixedPrecisionTrainer
 from .nn import update_ema
 from .resample import LossAwareSampler, UniformSampler
+import torch.nn.functional as F
 
 # For ImageNet experiments, this was a good default value.
 # We found that the lg_loss_scale quickly climbed to
@@ -41,9 +42,12 @@ class TrainLoop:
         weight_decay=0.0,
         lr_anneal_steps=0,
         training_step=2000,
+        use_8bit_adam = False,
+        vae=None,
     ):
         self.model = model
         self.diffusion = diffusion
+        self.vae = vae
         self.data = data
         self.num_classes = num_classes
         self.batch_size = batch_size
@@ -78,9 +82,17 @@ class TrainLoop:
             fp16_scale_growth=fp16_scale_growth,
         )
 
-        self.opt = AdamW(
-            self.mp_trainer.master_params, lr=self.lr, weight_decay=self.weight_decay
-        )
+        if use_8bit_adam:
+            try:
+                import bitsandbytes as bnb
+            except ImportError:
+                raise ImportError("To use 8-bit Adam, please install the bitsandbytes ;ibrary: 'pip install bitsandbytes'.")
+            self.opt = bnb.optim.AdamW(self.mp_trainer.master_params, lr=self.lr, weight_decay=self.weight_decay, min_8bit_size=16384)
+        else:
+            self.opt = AdamW(
+                self.mp_trainer.master_params, lr=self.lr, weight_decay=self.weight_decay
+            )
+
         if self.resume_step:
             self._load_optimizer_state()
             # Model was resumed, either due to a restart or a checkpoint
@@ -203,8 +215,10 @@ class TrainLoop:
                 k: v[i : i + self.microbatch].to(dist_util.dev())
                 for k, v in cond.items()
             }
+
             last_batch = (i + self.microbatch) >= batch.shape[0]
             t, weights = self.schedule_sampler.sample(micro.shape[0], dist_util.dev())
+
 
             compute_losses = functools.partial(
                 self.diffusion.training_losses,
@@ -212,6 +226,7 @@ class TrainLoop:
                 micro,
                 t,
                 model_kwargs=micro_cond,
+                vae = self.vae
             )
 
             if last_batch or not self.use_ddp:
