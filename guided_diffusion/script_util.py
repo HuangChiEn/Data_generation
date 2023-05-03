@@ -65,6 +65,7 @@ def model_and_diffusion_defaults():
         use_new_attention_order=False,
         no_instance=False,
         use_vae=True,
+        catch_path=None,
     )
     res.update(diffusion_defaults())
     return res
@@ -103,6 +104,7 @@ def create_model_and_diffusion(
     use_fp16,
     use_new_attention_order,
     use_vae,
+    catch_path,
 ):
     model = create_model(
         image_size,
@@ -123,6 +125,7 @@ def create_model_and_diffusion(
         use_fp16=use_fp16,
         use_new_attention_order=use_new_attention_order,
         no_instance=no_instance,
+        use_vae=use_vae,
     )
     diffusion = create_gaussian_diffusion(
         steps=diffusion_steps,
@@ -135,7 +138,7 @@ def create_model_and_diffusion(
         timestep_respacing=timestep_respacing,
     )
     # load the pretrain weight from SD
-    if use_vae:
+    if use_vae and catch_path is None:
         vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae")
         if use_fp16:
             vae.to(dtype=torch.float16)
@@ -171,6 +174,13 @@ def create_model(
         # TODO : design 1024 x 2048 res spec
         if use_vae:
             channel_mult = (1, 2, 3, 4)
+            # if image_size == 540:
+            #     channel_mult = (1, 2, 3, 4)
+            # elif image_size == 270:
+            #     channel_mult = (1, 1, 3, 4)
+            # elif image_size == 134:
+            #     channel_mult = (1, 1, 2, 4)
+
         elif image_size == 512:
             channel_mult = (0.5, 1, 1, 2, 2, 4, 4)
         elif image_size == 256:
@@ -268,6 +278,12 @@ def create_classifier(
 ):
     if use_vae:
         channel_mult = (1, 2, 3, 4)
+        # if image_size == 540:
+        #     channel_mult = (1, 2, 3, 4)
+        # elif image_size == 270:
+        #     channel_mult = (1, 1, 3, 4)
+        # elif image_size == 134:
+        #     channel_mult = (1, 1, 2, 4)
     elif image_size == 512:
         channel_mult = (0.5, 1, 1, 2, 2, 4, 4)
     elif image_size == 256:
@@ -285,6 +301,7 @@ def create_classifier(
     for res in classifier_attention_resolutions.split(","):
         attention_ds.append(image_size // int(res))
 
+    print(use_vae)
     input_channel = 4 if use_vae else 3
 
     return EncoderUNetModel(
@@ -394,6 +411,8 @@ def sr_create_model(
         channel_mult = (1, 1, 2, 2, 4, 4)
     elif large_size == 64:
         channel_mult = (1, 2, 3, 4)
+    elif large_size == 270:
+        channel_mult = (1, 1, 2, 2, 4, 4)
     else:
         raise ValueError(f"unsupported large size: {large_size}")
 

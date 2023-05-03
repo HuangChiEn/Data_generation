@@ -22,18 +22,25 @@ def setup_dist():
     """
     Setup a distributed process group.
     """
+    #print("MPI.COMM_WORLD.Get_rank()",MPI.COMM_WORLD.Get_rank())
+
     if dist.is_initialized():
         return
-    os.environ["CUDA_VISIBLE_DEVICES"] = f"{MPI.COMM_WORLD.Get_rank() % GPUS_PER_NODE}"
-    #os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+
+    th.cuda.set_device(MPI.COMM_WORLD.Get_rank() % GPUS_PER_NODE)
+    os.environ["CUDA_VISIBLE_DEVICES"] = f"{ MPI.COMM_WORLD.Get_rank() % GPUS_PER_NODE }"
+    #print( os.environ["CUDA_VISIBLE_DEVICES"])
+    #os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
     comm = MPI.COMM_WORLD
+    print(comm.rank,"/",comm.size)
     backend = "gloo" if not th.cuda.is_available() else "nccl"
 
     if backend == "gloo":
         hostname = "localhost"
     else:
         hostname = socket.gethostbyname(socket.getfqdn())
+
     os.environ["MASTER_ADDR"] = comm.bcast(hostname, root=0)
     os.environ["RANK"] = str(comm.rank)
     os.environ["WORLD_SIZE"] = str(comm.size)

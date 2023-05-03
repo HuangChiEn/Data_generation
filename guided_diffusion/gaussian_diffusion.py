@@ -767,7 +767,8 @@ class GaussianDiffusion:
                  Some mean or variance settings may also have other keys.
         """
         if vae is not None:
-            x_start = vae.encode(x_start.to(th.float16)).latent_dist.sample()#.to(th.float16)
+            x_start = vae.encode(x_start.type(th.float16)).latent_dist.sample()#.type(th.float16)
+            print("z shape:", x_start.shape)
 
         if model_kwargs is None:
             model_kwargs = {}

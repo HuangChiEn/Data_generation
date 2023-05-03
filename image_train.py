@@ -28,7 +28,8 @@ def main():
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
     model.to(dist_util.dev())
-    vae.to(dist_util.dev())
+    if vae is not None:
+        vae.to(dist_util.dev())
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
 
     logger.log("creating data loader...")
@@ -38,7 +39,9 @@ def main():
         batch_size=args.batch_size,
         image_size=args.image_size,
         class_cond=args.class_cond,
-        is_train=args.is_train
+        is_train=args.is_train,
+        use_vae=args.use_vae,
+        catch_path=args.catch_path
     )
 
     logger.log("training...")
@@ -78,7 +81,7 @@ def create_argparser():
         ema_rate="0.9999",  # comma-separated list of EMA values
         drop_rate=0.0,
         log_interval=10,
-        save_interval=1000,
+        save_interval=10000,
         resume_checkpoint="",
         use_fp16=False,
         fp16_scale_growth=1e-3,

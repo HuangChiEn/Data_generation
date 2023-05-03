@@ -29,13 +29,18 @@ def main():
     logger.configure()
 
     logger.log("creating model and diffusion...")
-    model, diffusion = create_model_and_diffusion(
+    model, diffusion, vae = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
+
     model.load_state_dict(
         dist_util.load_state_dict(args.model_path, map_location="cpu")
     )
     model.to(dist_util.dev())
+
+    if vae is not None:
+        vae.to(dist_util.dev())
+        vae.eval()
 
     logger.log("creating data loader...")
     data = load_data(
@@ -47,12 +52,14 @@ def main():
         deterministic=True,
         random_crop=False,
         random_flip=False,
-        is_train=False
+        is_train=False,
+        use_vae=args.use_vae
     )
 
     if args.use_fp16:
         model.convert_to_fp16()
     model.eval()
+
 
     image_path = os.path.join(args.results_path, 'images')
     os.makedirs(image_path, exist_ok=True)
@@ -76,11 +83,13 @@ def main():
         )
         sample = sample_fn(
             model,
-            (args.batch_size, 3, image.shape[2], image.shape[3]),
+            (args.batch_size, 3, image.shape[2], image.shape[3]) if not args.use_vae else (args.batch_size, 4, model_kwargs['y'].shape[2], model_kwargs['y'].shape[3]),
             clip_denoised=args.clip_denoised,
             model_kwargs=model_kwargs,
             progress=True
         )
+        if vae is not None:
+            sample = vae.decode(sample.to(th.float16)).sample
         sample = (sample + 1) / 2.0
 
         gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]

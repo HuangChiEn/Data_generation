@@ -87,7 +87,7 @@ class TrainLoop:
                 import bitsandbytes as bnb
             except ImportError:
                 raise ImportError("To use 8-bit Adam, please install the bitsandbytes ;ibrary: 'pip install bitsandbytes'.")
-            self.opt = bnb.optim.AdamW(self.mp_trainer.master_params, lr=self.lr, weight_decay=self.weight_decay, min_8bit_size=16384)
+            self.opt = bnb.optim.AdamW8bit(self.mp_trainer.master_params,betas=(0.9, 0.995) , lr=self.lr, weight_decay=self.weight_decay, min_8bit_size=16384)
         else:
             self.opt = AdamW(
                 self.mp_trainer.master_params, lr=self.lr, weight_decay=self.weight_decay
