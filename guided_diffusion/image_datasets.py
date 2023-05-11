@@ -22,6 +22,8 @@ def load_data(
     is_train=True,
     use_vae=True,
     catch_path=None,
+    mask_emb="resize"
+
 ):
     """
     For a dataset, create a generator over (images, kwargs) pairs.
@@ -84,7 +86,8 @@ def load_data(
         random_flip=random_flip,
         is_train=is_train,
         use_vae=use_vae,
-        catch_path=catch_path
+        catch_path=catch_path,
+        mask_emb=mask_emb
     )
 
     if deterministic:
@@ -133,7 +136,8 @@ class ImageDataset(Dataset):
         is_train=True,
         sub_size=None,
         use_vae=True,
-        catch_path=False
+        catch_path=False,
+        mask_emb="resize"
     ):
         super().__init__()
         self.is_train = is_train
@@ -147,6 +151,7 @@ class ImageDataset(Dataset):
         self.random_crop = random_crop
         self.random_flip = random_flip
         self.use_vae = use_vae
+        self.mask_emb = mask_emb
 
     def __len__(self):
         return len(self.local_images)
@@ -154,10 +159,27 @@ class ImageDataset(Dataset):
     def __getitem__(self, idx):
         if self.catch_mode:
             if self.dataset_mode == 'cityscapes':
-                file = torch.load(self.local_images[idx])
-                #print(file)
-                return file['x'], file['label']
 
+                file = torch.load(self.local_images[idx])
+                mean = file['x']['mean']
+                std = file['x']['std']
+                sample = torch.randn(mean.shape)
+                x = mean + std * sample
+                x = x * 0.18215
+                if self.mask_emb == "resize":
+                    return x, file['label']
+                elif self.mask_emb == "vae_encode":
+                    label_latent = []
+                    mean = file['label']['mean']
+                    std = file['label']['std']
+
+                    for m,s in zip(mean, std):
+                        sample = torch.randn(m.shape)
+                        sample = m + s * sample
+                        sample = sample * 0.18215
+                        label_latent.append(sample)
+                    y = torch.cat(label_latent, dim=0)
+                    return x, {"y": y}
         else:
             path = self.local_images[idx]
             with bf.BlobFile(path, "rb") as f:
@@ -188,8 +210,8 @@ class ImageDataset(Dataset):
                 #self.resolution = (self.resolution,self.resolution*2)
                 Label_size={270 : (33, 45), 540 : (67, 90), 1080 : (135, 180)}
                 if self.resolution in [270, 540, 1080]:
-                    sc= 1080//self.resolution
-                    label_size = Label_size[self.resolution] if self.use_vae else None
+                    sc = 1080//self.resolution
+                    label_size = Label_size[self.resolution] if self.use_vae and self.mask_emb == "resize" else None
                     arr_image, arr_class, arr_instance = resize_arr([pil_image, pil_class, pil_instance], self.resolution, True, ( self.resolution, 1440//sc ), label_size)
                 else:
                     arr_image, arr_class, arr_instance = resize_arr([pil_image, pil_class, pil_instance], self.resolution)

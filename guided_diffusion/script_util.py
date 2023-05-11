@@ -66,6 +66,7 @@ def model_and_diffusion_defaults():
         no_instance=False,
         use_vae=True,
         catch_path=None,
+        mask_emb="resize"
     )
     res.update(diffusion_defaults())
     return res
@@ -105,7 +106,17 @@ def create_model_and_diffusion(
     use_new_attention_order,
     use_vae,
     catch_path,
+    mask_emb
 ):
+    # load the pretrain weight from SD
+    if use_vae and catch_path is None:
+        vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae") #runwayml/stable-diffusion-v1-5
+        if use_fp16:
+            vae.to(dtype=torch.float16)
+        vae.requires_grad_(False)
+    else:
+        vae = None
+
     model = create_model(
         image_size,
         num_classes,
@@ -126,6 +137,7 @@ def create_model_and_diffusion(
         use_new_attention_order=use_new_attention_order,
         no_instance=no_instance,
         use_vae=use_vae,
+        mask_emb=mask_emb
     )
     diffusion = create_gaussian_diffusion(
         steps=diffusion_steps,
@@ -137,14 +149,7 @@ def create_model_and_diffusion(
         rescale_learned_sigmas=rescale_learned_sigmas,
         timestep_respacing=timestep_respacing,
     )
-    # load the pretrain weight from SD
-    if use_vae and catch_path is None:
-        vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae")
-        if use_fp16:
-            vae.to(dtype=torch.float16)
-        vae.requires_grad_(False)
-    else:
-        vae = None
+
 
     return model, diffusion, vae
 
@@ -169,6 +174,7 @@ def create_model(
     use_new_attention_order=False,
     no_instance=False,
     use_vae=True,
+    mask_emb="resize"
 ):
     if channel_mult == "":
         # TODO : design 1024 x 2048 res spec
@@ -221,6 +227,7 @@ def create_model(
         use_scale_shift_norm=use_scale_shift_norm,
         resblock_updown=resblock_updown,
         use_new_attention_order=use_new_attention_order,
+        mask_emb=mask_emb
     )
 
 
@@ -401,6 +408,7 @@ def sr_create_model(
     dropout,
     resblock_updown,
     use_fp16,
+    use_vae
 ):
     _ = small_size  # hack to prevent unused variable
     if use_vae:

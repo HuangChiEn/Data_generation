@@ -53,7 +53,8 @@ def main():
         random_crop=False,
         random_flip=False,
         is_train=False,
-        use_vae=args.use_vae
+        use_vae=args.use_vae,
+        mask_emb=args.mask_emb
     )
 
     if args.use_fp16:
@@ -74,6 +75,15 @@ def main():
         image = ((batch + 1.0) / 2.0).cuda()
         label = (cond['label_ori'].float() / 255.0).cuda()
         model_kwargs = preprocess_input(cond, num_classes=args.num_classes)
+        model_kwargs['y'] = model_kwargs['y'].cuda()
+        if args.mask_emb == "vae_encode":
+            label_latent = []
+            for i in range(model_kwargs['y'].shape[1]):
+                latent = vae.encode(
+                    model_kwargs['y'][:, i, :, :].unsqueeze(1).repeat(1, 3, 1, 1).type(th.float16)).latent_dist.sample()
+                label_latent.append(latent * 0.18215)
+            model_kwargs['y'] = th.cat(label_latent, dim=1)
+            print(model_kwargs['y'].shape)
 
         # set hyperparameter
         model_kwargs['s'] = args.s
@@ -81,15 +91,21 @@ def main():
         sample_fn = (
             diffusion.p_sample_loop if not args.use_ddim else diffusion.ddim_sample_loop
         )
+
         sample = sample_fn(
             model,
             (args.batch_size, 3, image.shape[2], image.shape[3]) if not args.use_vae else (args.batch_size, 4, model_kwargs['y'].shape[2], model_kwargs['y'].shape[3]),
             clip_denoised=args.clip_denoised,
             model_kwargs=model_kwargs,
-            progress=True
+            progress=True,
+            device= dist_util.dev()
         )
+
+
         if vae is not None:
-            sample = vae.decode(sample.to(th.float16)).sample
+            sample /= 0.18215
+            sample = vae.decode(sample.type(th.float16)).sample
+
         sample = (sample + 1) / 2.0
 
         gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]

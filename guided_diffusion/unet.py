@@ -167,12 +167,14 @@ class SPADEGroupNorm(nn.Module):
         )
         self.mlp_gamma = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
         self.mlp_beta = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
+        # self.vae = vae
 
     def forward(self, x, segmap):
         # Part 1. generate parameter-free normalized activations
         x = self.norm(x)
 
         # Part 2. produce scaling and bias conditioned on semantic map
+        #print(segmap.type(), segmap.device)
         segmap = F.interpolate(segmap, size=x.size()[2:], mode='nearest')
         actv = self.mlp_shared(segmap)
         gamma = self.mlp_gamma(actv)
@@ -337,7 +339,6 @@ class SDMResBlock(CondTimestepBlock):
         self.use_conv = use_conv
         self.use_checkpoint = use_checkpoint
         self.use_scale_shift_norm = use_scale_shift_norm
-
         self.in_norm = SPADEGroupNorm(channels, c_channels)
         self.in_layers = nn.Sequential(
             SiLU(),
@@ -606,6 +607,7 @@ class UNetModel(nn.Module):
         use_scale_shift_norm=False,
         resblock_updown=False,
         use_new_attention_order=False,
+        mask_emb="resize",
     ):
         super().__init__()
 
@@ -628,6 +630,8 @@ class UNetModel(nn.Module):
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
 
+        self.mask_emb = mask_emb
+        
         time_embed_dim = model_channels * 4
         self.time_embed = nn.Sequential(
             linear(model_channels, time_embed_dim),
@@ -637,7 +641,7 @@ class UNetModel(nn.Module):
 
         ch = input_ch = int(channel_mult[0] * model_channels)
         self.input_blocks = nn.ModuleList(
-            [TimestepEmbedSequential(conv_nd(dims, in_channels, ch, 3, padding=1))]
+            [TimestepEmbedSequential(conv_nd(dims, in_channels, ch, 3, padding=1))] #ch=128
         )
         self._feature_size = ch
         input_block_chans = [ch]
@@ -699,7 +703,7 @@ class UNetModel(nn.Module):
                 ch,
                 time_embed_dim,
                 dropout,
-                c_channels=num_classes,
+                c_channels=num_classes if mask_emb == "resize" else num_classes*4,
                 dims=dims,
                 use_checkpoint=use_checkpoint,
                 use_scale_shift_norm=use_scale_shift_norm,
@@ -715,7 +719,7 @@ class UNetModel(nn.Module):
                 ch,
                 time_embed_dim,
                 dropout,
-                c_channels=num_classes,
+                c_channels=num_classes if mask_emb == "resize" else num_classes*4 ,
                 dims=dims,
                 use_checkpoint=use_checkpoint,
                 use_scale_shift_norm=use_scale_shift_norm,
@@ -732,7 +736,7 @@ class UNetModel(nn.Module):
                         ch + ich,
                         time_embed_dim,
                         dropout,
-                        c_channels=num_classes,
+                        c_channels=num_classes if mask_emb == "resize" else num_classes*4,
                         out_channels=int(model_channels * mult),
                         dims=dims,
                         use_checkpoint=use_checkpoint,
@@ -757,7 +761,7 @@ class UNetModel(nn.Module):
                             ch,
                             time_embed_dim,
                             dropout,
-                            c_channels=num_classes,
+                            c_channels=num_classes if mask_emb == "resize" else num_classes*4,
                             out_channels=out_ch,
                             dims=dims,
                             use_checkpoint=use_checkpoint,
@@ -776,6 +780,7 @@ class UNetModel(nn.Module):
             SiLU(),
             zero_module(conv_nd(dims, input_ch, out_channels, 3, padding=1)),
         )
+
 
     def convert_to_fp16(self):
         """
@@ -811,15 +816,18 @@ class UNetModel(nn.Module):
 
         if self.num_classes is not None:
 
-            #print(y.shape, (x.shape[0], self.num_classes, x.shape[2], x.shape[3]))
-            assert y.shape == (x.shape[0], self.num_classes, x.shape[2], x.shape[3])
+            #print(y.shape, (x.shape[0], self.num_classes if self.mask_emb == "resize" else self.num_classes*4, x.shape[2], x.shape[3]))
+            assert y.shape == (x.shape[0], self.num_classes if self.mask_emb == "resize" else self.num_classes*4, x.shape[2], x.shape[3])
 
         y = y.type(self.dtype)
         h = x.type(self.dtype)
         for module in self.input_blocks:
             h = module(h, y, emb)
             hs.append(h)
+        #h_nosie = th.cuda.FloatTensor(h.shape).normal_(mean=0, std=1).type(th.float16)
+
         h = self.middle_block(h, y, emb)
+
         for module in self.output_blocks:
             temp = hs.pop()
 
@@ -834,6 +842,7 @@ class UNetModel(nn.Module):
 
             h = th.cat([h, temp], dim=1)
             h = module(h, y, emb)
+
         h = h.type(x.dtype)
         return self.out(h)
 

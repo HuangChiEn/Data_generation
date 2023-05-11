@@ -41,7 +41,8 @@ def main():
         class_cond=args.class_cond,
         is_train=args.is_train,
         use_vae=args.use_vae,
-        catch_path=args.catch_path
+        catch_path=args.catch_path,
+        mask_emb=args.mask_emb
     )
 
     logger.log("training...")

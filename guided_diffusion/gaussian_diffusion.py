@@ -265,6 +265,9 @@ class GaussianDiffusion:
         if 's' in model_kwargs and model_kwargs['s'] > 1.0:
             model_output_zero = model(x, self._scale_timesteps(t), y=th.zeros_like(model_kwargs['y']))
             model_output[:, :3] = model_output_zero[:, :3] + model_kwargs['s'] * (model_output[:, :3] - model_output_zero[:, :3])
+        # else:
+        #     print("S:",model_kwargs['s'])
+        #     model_output[:, :3] = (1-model_kwargs['s']) * model_output_zero[:, :3] + model_kwargs['s'] * model_output[:, :3]
 
         if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
             assert model_output.shape == (B, C * 2, *x.shape[2:])
@@ -767,15 +770,21 @@ class GaussianDiffusion:
                  Some mean or variance settings may also have other keys.
         """
         if vae is not None:
+            #convert image to laten space
             x_start = vae.encode(x_start.type(th.float16)).latent_dist.sample()#.type(th.float16)
-            print("z shape:", x_start.shape)
+            x_start = x_start * 0.18215
+            if x_start.shape[2] != model_kwargs['y'].shape[2]:
+                label_latent = []
+                for i in range(model_kwargs['y'].shape[1]):
+                    latent = vae.encode(
+                        model_kwargs['y'][:, i, :, :].unsqueeze(1).repeat(1, 3, 1, 1).type(th.float16)).latent_dist.sample()
+                    label_latent.append(latent * 0.18215)
+                model_kwargs['y'] = th.cat(label_latent, dim=1)
 
         if model_kwargs is None:
             model_kwargs = {}
         if noise is None:
             noise = th.randn_like(x_start)
-
-
 
         x_t = self.q_sample(x_start, t, noise=noise)
 

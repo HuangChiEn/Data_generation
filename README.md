@@ -2,9 +2,9 @@
 
 ### Todo
 
-- [ ] Train the SDE with the CityScape Dataset
+- [x] Train the SDE with the CityScape Dataset
   - [x] Implementation of the Cityscape results from the SDM paper
-  - [ ] Training SDM with the 270X360 @harry
+  - [x] Training SDM with the 270X360 @harry
 - [ ] Adding the VAE   
   - [ ] Codding in training @harry
   - [ ] Codding in inference @harry

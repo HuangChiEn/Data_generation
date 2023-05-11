@@ -33,7 +33,7 @@ def setup_dist():
     #os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
     comm = MPI.COMM_WORLD
-    print(comm.rank,"/",comm.size)
+    print(comm.rank + 1, "/",comm.size)
     backend = "gloo" if not th.cuda.is_available() else "nccl"
 
     if backend == "gloo":

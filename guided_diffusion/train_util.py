@@ -178,7 +178,10 @@ class TrainLoop:
         ):
             # print(self.step,"/",self.lr_anneal_steps)
             batch, cond = next(self.data)
-            cond = self.preprocess_input(cond)
+
+            if "path" in cond.keys():
+                cond = self.preprocess_input(cond)
+
             self.run_step(batch, cond)
             if self.step % self.log_interval == 0:
                 logger.dumpkvs()
@@ -219,14 +222,13 @@ class TrainLoop:
             last_batch = (i + self.microbatch) >= batch.shape[0]
             t, weights = self.schedule_sampler.sample(micro.shape[0], dist_util.dev())
 
-
             compute_losses = functools.partial(
                 self.diffusion.training_losses,
                 self.ddp_model,
                 micro,
                 t,
                 model_kwargs=micro_cond,
-                vae = self.vae
+                vae=self.vae
             )
 
             if last_batch or not self.use_ddp:
