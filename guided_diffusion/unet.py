@@ -163,18 +163,16 @@ class SPADEGroupNorm(nn.Module):
         nhidden = 128
         self.mlp_shared = nn.Sequential(
             nn.Conv2d(label_nc, nhidden, kernel_size=3, padding=1),
-            nn.ReLU()
+            nn.ReLU(),
         )
         self.mlp_gamma = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
         self.mlp_beta = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
-        # self.vae = vae
 
     def forward(self, x, segmap):
         # Part 1. generate parameter-free normalized activations
         x = self.norm(x)
 
         # Part 2. produce scaling and bias conditioned on semantic map
-        #print(segmap.type(), segmap.device)
         segmap = F.interpolate(segmap, size=x.size()[2:], mode='nearest')
         actv = self.mlp_shared(segmap)
         gamma = self.mlp_gamma(actv)
@@ -641,7 +639,7 @@ class UNetModel(nn.Module):
 
         ch = input_ch = int(channel_mult[0] * model_channels)
         self.input_blocks = nn.ModuleList(
-            [TimestepEmbedSequential(conv_nd(dims, in_channels, ch, 3, padding=1))] #ch=128
+            [TimestepEmbedSequential(conv_nd(dims, in_channels, ch, 3, padding=1))] #ch=256
         )
         self._feature_size = ch
         input_block_chans = [ch]
@@ -660,6 +658,7 @@ class UNetModel(nn.Module):
                     )
                 ]
                 ch = int(mult * model_channels)
+                #print(ds)
                 if ds in attention_resolutions:
                     layers.append(
                         AttentionBlock(
@@ -744,6 +743,7 @@ class UNetModel(nn.Module):
                     )
                 ]
                 ch = int(model_channels * mult)
+                #print(ds)
                 if ds in attention_resolutions:
                     layers.append(
                         AttentionBlock(
@@ -780,7 +780,6 @@ class UNetModel(nn.Module):
             SiLU(),
             zero_module(conv_nd(dims, input_ch, out_channels, 3, padding=1)),
         )
-
 
     def convert_to_fp16(self):
         """

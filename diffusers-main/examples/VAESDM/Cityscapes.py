@@ -4,7 +4,6 @@ import random
 
 from PIL import Image
 import blobfile as bf
-from mpi4py import MPI
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
 import torch
@@ -13,10 +12,7 @@ def load_data(
     *,
     dataset_mode,
     data_dir,
-    batch_size,
     image_size,
-    class_cond=False,
-    deterministic=False,
     random_crop=True,
     random_flip=True,
     is_train=True,
@@ -80,8 +76,6 @@ def load_data(
         all_files,
         classes=classes,
         instances=instances,
-        shard=MPI.COMM_WORLD.Get_rank(),
-        num_shards=MPI.COMM_WORLD.Get_size(),
         random_crop=random_crop,
         random_flip=random_flip,
         is_train=is_train,
@@ -89,17 +83,7 @@ def load_data(
         catch_path=catch_path,
         mask_emb=mask_emb
     )
-
-    if deterministic:
-        loader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=False, num_workers=1, drop_last=True
-        )
-    else:
-        loader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=True, num_workers=1, drop_last=True
-        )
-    while True:
-        yield from loader
+    return dataset
 
 
 def _list_image_files_recursively(data_dir,catch_type=None):
@@ -129,8 +113,6 @@ class ImageDataset(Dataset):
         image_paths,
         classes=None,
         instances=None,
-        shard=0,
-        num_shards=1,
         random_crop=False,
         random_flip=True,
         is_train=True,
@@ -145,9 +127,9 @@ class ImageDataset(Dataset):
         self.dataset_mode = dataset_mode
         self.resolution = resolution
         self.sub_size = sub_size
-        self.local_images = image_paths[shard:][::num_shards]
-        self.local_classes = None if classes is None else classes[shard:][::num_shards]
-        self.local_instances = None if instances is None else instances[shard:][::num_shards]
+        self.local_images = image_paths
+        self.local_classes = None if classes is None else classes
+        self.local_instances = None if instances is None else instances
         self.random_crop = random_crop
         self.random_flip = random_flip
         self.use_vae = use_vae
@@ -167,7 +149,8 @@ class ImageDataset(Dataset):
                 x = mean + std * sample
                 x = x * 0.18215
                 if self.mask_emb == "resize":
-                    return x, file['label']
+                    #return x, file['label']
+                    return {"pixel_values": x, "label": file['label']}
                 elif self.mask_emb == "vae_encode":
                     label_latent = []
                     mean = file['label']['mean']
@@ -179,9 +162,9 @@ class ImageDataset(Dataset):
                         sample = sample * 0.18215
                         label_latent.append(sample)
                     y = torch.cat(label_latent, dim=0)
-                    return x, {"y": y}
+                    return {"pixel_values": x, "y": y}
                 else:
-                    return x, file['label']
+                    return {"pixel_values": x, "label": file['label']}
         else:
             path = self.local_images[idx]
             with bf.BlobFile(path, "rb") as f:
@@ -248,7 +231,7 @@ class ImageDataset(Dataset):
             if arr_instance is not None:
                 out_dict['instance'] = arr_instance[None, ]
 
-            return np.transpose(arr_image, [2, 0, 1]), out_dict
+            return {"pixel_values":np.transpose(arr_image, [2, 0, 1]), "label":out_dict}
 
 
 def resize_arr(pil_list, image_size, keep_aspect=True, crop_size=None, label_size = None):

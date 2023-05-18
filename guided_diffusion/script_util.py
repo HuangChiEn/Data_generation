@@ -179,7 +179,9 @@ def create_model(
     if channel_mult == "":
         # TODO : design 1024 x 2048 res spec
         if use_vae:
-            channel_mult = (1, 2, 3, 4)
+
+            # channel_mult = (1, 2, 3, 4)
+            channel_mult = (1, 1, 2, 2, 3, 3)
             # if image_size == 540:
             #     channel_mult = (1, 2, 3, 4)
             # elif image_size == 270:
@@ -284,7 +286,8 @@ def create_classifier(
     use_vae=True,
 ):
     if use_vae:
-        channel_mult = (1, 2, 3, 4)
+        #channel_mult = (1, 2, 3, 4)
+        channel_mult = (1, 1, 2, 2, 3, 3)
         # if image_size == 540:
         #     channel_mult = (1, 2, 3, 4)
         # elif image_size == 270:

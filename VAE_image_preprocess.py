@@ -3,9 +3,8 @@ import torch
 from guided_diffusion.image_datasets import load_data
 import os
 from tqdm import tqdm, trange
-import torchvision as tv
 from guided_diffusion import dist_util
-from guided_diffusion.train_util import TrainLoop
+import torchvision as tv
 
 
 def get_edges(t):
@@ -43,7 +42,7 @@ def preprocess_input(data, drop_rate=0.0):
 
     return cond
 
-def main(use_fp16=True,data_dir='/data1/dataset/Cityscapes',batch_size=16,image_size=540):
+def main(use_fp16=True,data_dir='/data1/dataset/Cityscapes',batch_size=16,image_size=540, mask_emb="resize"):
     dist_util.setup_dist()
     vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae")
     if use_fp16:
@@ -60,7 +59,7 @@ def main(use_fp16=True,data_dir='/data1/dataset/Cityscapes',batch_size=16,image_
         class_cond=True,
         is_train=True,
         use_vae=True,
-        mask_emb="vae_encode"
+        mask_emb=mask_emb
     )
 
     catch_patch = "/data/harry/Cityscape_catch/VAE_540_label_encode/train/"
@@ -79,22 +78,30 @@ def main(use_fp16=True,data_dir='/data1/dataset/Cityscapes',batch_size=16,image_
     print(initial_count)
 
     for images, cond in tqdm(data):
-        if initial_count >= 2975:
-            break
-
+        # if initial_count >= 2975:
+        #     break
         images = images.cuda()
         latent_dist = vae.encode(images.type(torch.float16)).latent_dist # .to(torch.float16)
         mean_ = latent_dist.mean
         std_ = latent_dist.std
-        cond = preprocess_input(cond)
-        cond['y'] = cond['y'].cuda()
+        sample = torch.randn(mean_.shape).cuda()
+        sample = mean_ + std_ * sample
 
-        label_mean = []
-        label_std = []
-        for i in range(cond['y'].shape[1]):
-            latent_dist = vae.encode(cond['y'][:, i, :, :].unsqueeze(1).repeat(1,3,1,1).type(torch.float16)).latent_dist
-            label_mean.append(latent_dist.mean.cpu())
-            label_std.append(latent_dist.std.cpu())
+
+        sample = vae.decode(sample.type(torch.float16)).sample
+        tv.utils.save_image((images[0] + 1) / 2.0, "input_img.png")
+        tv.utils.save_image((sample[0] + 1) / 2.0, "output_img.png")
+        break
+
+        if mask_emb == "vae_encode":
+            cond = preprocess_input(cond)
+            cond['y'] = cond['y'].cuda()
+            label_mean = []
+            label_std = []
+            for i in range(cond['y'].shape[1]):
+                latent_dist = vae.encode(cond['y'][:, i, :, :].unsqueeze(1).repeat(1,3,1,1).type(torch.float16)).latent_dist
+                label_mean.append(latent_dist.mean.cpu())
+                label_std.append(latent_dist.std.cpu())
 
         for i, (m, s, name) in enumerate(zip(mean_, std_, cond['path'])):
             path = catch_patch + name.split('/')[-2] + "/" + name.split('/')[-1].replace(".png", ".pt")

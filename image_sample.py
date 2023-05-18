@@ -83,7 +83,6 @@ def main():
                     model_kwargs['y'][:, i, :, :].unsqueeze(1).repeat(1, 3, 1, 1).type(th.float16)).latent_dist.sample()
                 label_latent.append(latent * 0.18215)
             model_kwargs['y'] = th.cat(label_latent, dim=1)
-            print(model_kwargs['y'].shape)
 
         # set hyperparameter
         model_kwargs['s'] = args.s
