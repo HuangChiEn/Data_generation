@@ -703,7 +703,7 @@ def degradation_bsrgan_plus(img, sf=4, shuffle_prob=0.5, use_sharp=True, lq_patc
 
 if __name__ == '__main__':
 	print("hey")
-	img = util.imread_uint('utils/test.png', 3)
+	img = util.imread_uint('model/test.png', 3)
 	print(img)
 	img = util.uint2single(img)
 	print(img)

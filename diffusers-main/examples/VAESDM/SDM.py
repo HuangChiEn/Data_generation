@@ -17,7 +17,6 @@ import argparse
 import logging
 import math
 import os
-import random
 from pathlib import Path
 
 import accelerate
@@ -30,21 +29,19 @@ import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
-from datasets import load_dataset
 from huggingface_hub import create_repo, upload_folder
 from packaging import version
-from torchvision import transforms
 from tqdm.auto import tqdm
-from transformers import CLIPTextModel, CLIPTokenizer
 
 import diffusers
-from diffusers import AutoencoderKL, DDPMScheduler
-from unet_2d_sdm import SDMUNet2DModel
+from diffusers import DDPMScheduler
+
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from diffusers.utils import check_min_version, deprecate, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
 
+from model.unet_2d_sdm import SDMUNet2DModel
 from Cityscapes import load_data
 from Pipline import SDMPipeline
 
@@ -188,7 +185,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="sdm-model",
+        default="attnsdm-model",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
@@ -234,7 +231,7 @@ def parse_args():
     parser.add_argument(
         "--gradient_accumulation_steps",
         type=int,
-        default=8,
+        default=4,
         help="Number of updates steps to accumulate before performing a backward/update pass.",
     )
     parser.add_argument(
@@ -349,7 +346,7 @@ def parse_args():
     parser.add_argument(
         "--checkpointing_steps",
         type=int,
-        default=1000,
+        default=2000,
         help=(
             "Save a checkpoint of the training state every X updates. These checkpoints are only suitable for resuming"
             " training using `--resume_from_checkpoint`."
@@ -506,18 +503,18 @@ def main():
         layers_per_block=2,
         block_out_channels=(256, 256, 512, 1024, 1024),
         down_block_types=(
-            "ResnetDownsampleBlock2D",
-            "ResnetDownsampleBlock2D",
-            "ResnetDownsampleBlock2D",
-            "ResnetDownsampleBlock2D",
-            "ResnetDownsampleBlock2D",
+            "DownBlock2D",
+            "DownBlock2D",
+            "DownBlock2D",
+            "DownBlock2D",
+            "AttnDownBlock2D",
         ),
         up_block_types=(
-            "SDMResnetUpsampleBlock2D",
-            "SDMResnetUpsampleBlock2D",
-            "SDMResnetUpsampleBlock2D",
-            "SDMResnetUpsampleBlock2D",
-            "SDMResnetUpsampleBlock2D",
+            "SDMAttnUpBlock2D",
+            "SDMUpBlock2D",
+            "SDMUpBlock2D",
+            "SDMUpBlock2D",
+            "SDMUpBlock2D",
         ),
         segmap_channels=args.segmap_channels+1
     )

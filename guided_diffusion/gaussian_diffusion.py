@@ -448,7 +448,7 @@ class GaussianDiffusion:
             out["mean"] = self.condition_mean(
                 cond_fn, out, x, t, model_kwargs=model_kwargs
             )
-        sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise
+        sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise #
         return {"sample": sample, "pred_xstart": out["pred_xstart"]}
 
     def p_sample_loop(

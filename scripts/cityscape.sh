@@ -20,8 +20,8 @@ export MANPATH=${MPI_HOME}/share/man:$MANPATH
 
 
 # Testing
-export OPENAI_LOGDIR='../OUTPUT/Cityscapes540-VAESDM-LDM-4ch-256CH-140kstep-Test'
-mpiexec -np 1 --allow-run-as-root python ../image_sample.py --data_dir /data1/dataset/Cityscapes --dataset_mode cityscapes --attention_resolutions 32,16,8 --diffusion_steps 1000 --image_size 540 --learn_sigma False \
-       --noise_schedule linear --num_channels 256 --num_head_channels 8 --num_res_blocks 2 --resblock_updown True --use_fp16 True --use_scale_shift_norm True --num_classes 34 \
-       --class_cond True --no_instance False --batch_size 8 --num_samples 4 --model_path ../OUTPUT/Cityscapes540-VAESDM-LDM-4ch-256CH-500kstep/model140000.pt --results_path ../RESULTS/Cityscapes540-VAESDM-LDM-4ch-256CH-140kstep --s 1 --use_vae True \
+export OPENAI_LOGDIR='../OUTPUT/Cityscapes540-SDM-256CH-160kstep-Test'
+mpiexec -np 1 --allow-run-as-root python ../image_sample.py --data_dir /data1/dataset/Cityscapes --dataset_mode cityscapes --attention_resolutions 32,16,8 --diffusion_steps 1000 --image_size 270 --learn_sigma True \
+       --noise_schedule linear --num_channels 256 --num_head_channels 64 --num_res_blocks 2 --resblock_updown True --use_fp16 True --use_scale_shift_norm True --num_classes 34 \
+       --class_cond True --no_instance False --batch_size 8 --num_samples 500 --model_path ../OUTPUT/Cityscapes270-SDM-256CH-500epoch/model160000.pt --results_path ../RESULTS/Cityscapes540-SDM-256CH-160kstep --s 1 --use_vae False \
        --mask_emb 'resize'

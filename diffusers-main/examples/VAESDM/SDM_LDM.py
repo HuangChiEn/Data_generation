@@ -38,8 +38,8 @@ from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
 import diffusers
-from diffusers import AutoencoderKL, DDPMScheduler
-from unet_2d_sdm import SDMUNet2DModel
+from diffusers import AutoencoderKL, DDPMScheduler, VQModel
+
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from diffusers.utils import check_min_version, deprecate, is_wandb_available
@@ -47,6 +47,7 @@ from diffusers.utils.import_utils import is_xformers_available
 
 from Cityscapes import load_data
 from Pipline import SDMLDMPipeline
+from model.unet_2d_sdm import SDMUNet2DModel
 
 if is_wandb_available():
     import wandb
@@ -197,7 +198,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="LDM-sdm-model",
+        default="VQLDM-sdm540-model",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
@@ -210,7 +211,7 @@ def parse_args():
     parser.add_argument(
         "--resolution",
         type=int,
-        default=512,
+        default=540,
         help=(
             "The resolution for input images, all the images in the train/validation dataset will be resized to this"
             " resolution"
@@ -231,7 +232,7 @@ def parse_args():
         help="whether to randomly flip images horizontally",
     )
     parser.add_argument(
-        "--train_batch_size", type=int, default=24, help="Batch size (per device) for the training dataloader."
+        "--train_batch_size", type=int, default=8, help="Batch size (per device) for the training dataloader."
     )
     parser.add_argument("--num_train_epochs", type=int, default=1000)
     parser.add_argument(
@@ -243,7 +244,7 @@ def parse_args():
     parser.add_argument(
         "--gradient_accumulation_steps",
         type=int,
-        default=1,
+        default=3,
         help="Number of updates steps to accumulate before performing a backward/update pass.",
     )
     parser.add_argument(
@@ -358,7 +359,7 @@ def parse_args():
     parser.add_argument(
         "--checkpointing_steps",
         type=int,
-        default=1000,
+        default=2000,
         help=(
             "Save a checkpoint of the training state every X updates. These checkpoints are only suitable for resuming"
             " training using `--resume_from_checkpoint`."
@@ -504,28 +505,29 @@ def main():
 
     # Load scheduler and models.
     noise_scheduler = DDPMScheduler.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="scheduler")
-    vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae", revision=args.revision)
+    #vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae", revision=args.revision)
+    vae = VQModel.from_pretrained("CompVis/ldm-super-resolution-4x-openimages", subfolder="vqvae", revision=args.revision)
     # Freeze vae
     vae.requires_grad_(False)
 
     unet = SDMUNet2DModel(
-        sample_size=args.resolution / 8,
-        in_channels=4,
-        out_channels=4,
+        sample_size=args.resolution / 4,
+        in_channels=vae.config.latent_channels,
+        out_channels=vae.config.latent_channels,
         layers_per_block=2,
         block_out_channels=(128, 128, 256, 256, 512, 512),
         down_block_types=(
             "ResnetDownsampleBlock2D",
             "ResnetDownsampleBlock2D",
             "ResnetDownsampleBlock2D",
-            "ResnetDownsampleBlock2D",
-            "ResnetDownsampleBlock2D",
-            "ResnetDownsampleBlock2D",
+            "AttnDownBlock2D",
+            "AttnDownBlock2D",
+            "AttnDownBlock2D",
         ),
         up_block_types=(
-            "SDMResnetUpsampleBlock2D",
-            "SDMResnetUpsampleBlock2D",
-            "SDMResnetUpsampleBlock2D",
+            "SDMAttnUpBlock2D",
+            "SDMAttnUpBlock2D",
+            "SDMAttnUpBlock2D",
             "SDMResnetUpsampleBlock2D",
             "SDMResnetUpsampleBlock2D",
             "SDMResnetUpsampleBlock2D",
@@ -658,7 +660,7 @@ def main():
         random_crop=False,
         random_flip=args.random_flip,
         is_train=True,
-        use_vae=True,
+        use_vae=False,
         mask_emb="resize"
     )
 
@@ -784,9 +786,10 @@ def main():
 
             with accelerator.accumulate(unet):
                 # Convert images to latent space
-                latents = vae.encode(batch["pixel_values"].to(weight_dtype)).latent_dist.sample()
+                latents = vae.encode(batch["pixel_values"].to(weight_dtype)).latents #.latent_dist.sample()
                 latents = latents * vae.config.scaling_factor
                 segmap = preprocess_input(batch["segmap"], args.segmap_channels)
+                #print(latents.shape, segmap.shape)
 
                 # Sample noise that we'll add to the latents
                 noise = torch.randn_like(latents)

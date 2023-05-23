@@ -141,7 +141,6 @@ class ImageDataset(Dataset):
     def __getitem__(self, idx):
         if self.catch_mode:
             if self.dataset_mode == 'cityscapes':
-
                 file = torch.load(self.local_images[idx])
                 mean = file['x']['mean']
                 std = file['x']['std']
@@ -149,7 +148,6 @@ class ImageDataset(Dataset):
                 x = mean + std * sample
                 x = x * 0.18215
                 if self.mask_emb == "resize":
-                    #return x, file['label']
                     return {"pixel_values": x, "label": file['label']}
                 elif self.mask_emb == "vae_encode":
                     label_latent = []

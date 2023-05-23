@@ -21,7 +21,8 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.utils import BaseOutput
 from diffusers.models.embeddings import GaussianFourierProjection, TimestepEmbedding, Timesteps
 from diffusers.models.modeling_utils import ModelMixin
-from unet_2d_blocks import UNetSDMMidBlock2D, get_down_block, get_up_block, UNetSDMMidBlock2D
+from model.unet_2d_blocks import UNetSDMMidBlock2D, get_down_block, get_up_block, UNetSDMMidBlock2D
+from diffusers.models.attention import AttentionBlock
 
 
 @dataclass

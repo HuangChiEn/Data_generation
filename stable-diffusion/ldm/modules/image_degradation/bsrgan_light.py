@@ -625,7 +625,7 @@ def degradation_bsrgan_variant(image, sf=4, isp_model=None):
 
 if __name__ == '__main__':
     print("hey")
-    img = util.imread_uint('utils/test.png', 3)
+    img = util.imread_uint('model/test.png', 3)
     img = img[:448, :448]
     h = img.shape[0] // 4
     print("resizing to", h)
