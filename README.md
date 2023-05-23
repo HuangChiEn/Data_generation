@@ -1,5 +1,8 @@
 # VAE Semantic Image Synthesis via Diffusion Models (VAE-SDM)
 
+### Code base movement
+#### TKS to harry, the SDM-LDM and their baseline (SDM) have been integrated into the hugging face example, where located in `./diffusers-main/examples/VAESDM` . 
+
 ### Todo
 
 - [x] Train the SDE with the CityScape Dataset
