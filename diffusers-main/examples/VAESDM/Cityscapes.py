@@ -48,6 +48,7 @@ def load_data(
             labels_file = _list_image_files_recursively(os.path.join(data_dir, 'gtFine', 'train' if is_train else 'val'))
             classes = [x for x in labels_file if x.endswith('_labelIds.png')]
             instances = [x for x in labels_file if x.endswith('_instanceIds.png')]
+            clr_instances = [x for x in labels_file if x.endswith('_color.png')]
         else:
             all_files = _list_image_files_recursively(os.path.join(catch_path, 'train' if is_train else 'val'), "pt")
             labels_file = None
@@ -76,6 +77,7 @@ def load_data(
         all_files,
         classes=classes,
         instances=instances,
+        clr_instances=clr_instances,
         random_crop=random_crop,
         random_flip=random_flip,
         is_train=is_train,
@@ -113,6 +115,7 @@ class ImageDataset(Dataset):
         image_paths,
         classes=None,
         instances=None,
+        clr_instances=None,
         random_crop=False,
         random_flip=True,
         is_train=True,
@@ -130,6 +133,7 @@ class ImageDataset(Dataset):
         self.local_images = image_paths
         self.local_classes = None if classes is None else classes
         self.local_instances = None if instances is None else instances
+        self.local_clr_instances = None if clr_instances is None else clr_instances
         self.random_crop = random_crop
         self.random_flip = random_flip
         self.use_vae = use_vae
@@ -139,6 +143,7 @@ class ImageDataset(Dataset):
         return len(self.local_images)
 
     def __getitem__(self, idx):
+        ## Note that catch_mode haven't support cache RGB-mask!
         if self.catch_mode:
             if self.dataset_mode == 'cityscapes':
                 file = torch.load(self.local_images[idx])
@@ -149,6 +154,7 @@ class ImageDataset(Dataset):
                 x = x * 0.18215
                 if self.mask_emb == "resize":
                     return {"pixel_values": x, "label": file['label']}
+                    
                 elif self.mask_emb == "vae_encode":
                     label_latent = []
                     mean = file['label']['mean']
@@ -187,17 +193,27 @@ class ImageDataset(Dataset):
             else:
                 pil_instance = None
 
+            if self.local_clr_instances is not None:
+                clr_instance_path = self.local_clr_instances[idx] # DEBUG: from classes to instances, may affect CelebA
+                with bf.BlobFile(clr_instance_path, "rb") as f:
+                    pil_clr_instance = Image.open(f)
+                    pil_clr_instance.load()
+                pil_clr_instance = pil_clr_instance.convert("RGB")
+            else:
+                pil_clr_instance = None
+
             if self.dataset_mode == 'cityscapes':
                 # if self.sub_size is not None:
                 #
                 #self.resolution = (self.resolution,self.resolution*2)
+                # label don't need to resize 
                 Label_size={270 : (33, 45), 540 : (67, 90), 1080 : (135, 180)}
                 if self.resolution in [270, 540, 1080]:
                     sc = 1080//self.resolution
                     label_size = Label_size[self.resolution] if self.use_vae and self.mask_emb == "resize" else None
-                    arr_image, arr_class, arr_instance = resize_arr([pil_image, pil_class, pil_instance], self.resolution, True, ( self.resolution, 1440//sc ), label_size)
+                    arr_image, arr_class, arr_instance, arr_clr_instance = resize_arr([pil_image, pil_class, pil_instance, pil_clr_instance], self.resolution, True, ( self.resolution, 1440//sc ), label_size)
                 else:
-                    arr_image, arr_class, arr_instance = resize_arr([pil_image, pil_class, pil_instance], self.resolution)
+                    arr_image, arr_class, arr_instance, arr_clr_instance = resize_arr([pil_image, pil_class, pil_instance, pil_clr_instance], self.resolution)
 
             else:
                 if self.is_train:
@@ -212,6 +228,7 @@ class ImageDataset(Dataset):
                 arr_image = arr_image[:, ::-1].copy()
                 arr_class = arr_class[:, ::-1].copy()
                 arr_instance = arr_instance[:, ::-1].copy() if arr_instance is not None else None
+                arr_clr_instance = arr_clr_instance[:, ::-1].copy() if arr_instance is not None else None
 
             arr_image = arr_image.astype(np.float32) / 127.5 - 1
 
@@ -228,15 +245,17 @@ class ImageDataset(Dataset):
 
             if arr_instance is not None:
                 out_dict['instance'] = arr_instance[None, ]
+            if arr_clr_instance is not None:
+                out_dict['clr_instance'] = arr_clr_instance[None, ]
 
             return {"pixel_values":np.transpose(arr_image, [2, 0, 1]), "label":out_dict}
 
-
+# leave 
 def resize_arr(pil_list, image_size, keep_aspect=True, crop_size=None, label_size = None):
     # We are not on a new enough PIL to support the `reducing_gap`
     # argument, which uses BOX downsampling at powers of two first.
     # Thus, we do it by hand to improve downsample quality.
-    pil_image, pil_class, pil_instance = pil_list
+    pil_image, pil_class, pil_instance, pil_clr_instance = pil_list
 
     while min(*pil_image.size) >= 2 * image_size:
         pil_image = pil_image.resize(
@@ -262,10 +281,18 @@ def resize_arr(pil_list, image_size, keep_aspect=True, crop_size=None, label_siz
         else:
             pil_instance = pil_instance.resize(pil_image.size, resample=Image.NEAREST)
 
+    if pil_clr_instance is not None:
+        if label_size is not None:
+            pil_clr_instance = pil_clr_instance.resize((label_size[0] * 2, label_size[0]), resample=Image.NEAREST)
+        else:
+            pil_clr_instance = pil_clr_instance.resize(pil_image.size, resample=Image.NEAREST)
+
     arr_image = np.array(pil_image)
     arr_class = np.array(pil_class)
     arr_instance = np.array(pil_instance) if pil_instance is not None else None
+    arr_clr_instance = np.array(pil_clr_instance) if pil_clr_instance is not None else None
 
+    # center crop.. convert to numpy arr 
     if crop_size is not None:
         if label_size is None:
             label_size = crop_size
@@ -274,9 +301,10 @@ def resize_arr(pil_list, image_size, keep_aspect=True, crop_size=None, label_siz
         arr_image = arr_image[:, crop_x: crop_x + crop_size[1]]
         arr_class = arr_class[:, crop_x_label: crop_x_label + label_size[1]]
         arr_instance = arr_instance[: , crop_x_label : crop_x_label + label_size[1]] if arr_instance is not None else None
-        return arr_image, arr_class, arr_instance
+        arr_clr_instance = arr_clr_instance[: , crop_x_label : crop_x_label + label_size[1]] if arr_clr_instance is not None else None
+        return arr_image, arr_class, arr_instance, arr_clr_instance
     else:
-        return arr_image, arr_class, arr_instance
+        return arr_image, arr_class, arr_instance, arr_clr_instance
 
 
 def center_crop_arr(pil_list, image_size):
@@ -341,3 +369,16 @@ def random_crop_arr(pil_list, image_size, min_crop_frac=0.8, max_crop_frac=1.0):
     return arr_image[crop_y : crop_y + image_size, crop_x : crop_x + image_size],\
            arr_class[crop_y: crop_y + image_size, crop_x: crop_x + image_size],\
            arr_instance[crop_y : crop_y + image_size, crop_x : crop_x + image_size] if arr_instance is not None else None
+
+def collate_fn(examples):
+    segmap = {}
+    for k in examples[0]["label"].keys():
+        if k != 'path':
+            segmap[k] = torch.stack([torch.from_numpy(example["label"][k]) for example in examples])
+            segmap[k] = segmap[k].to(memory_format=torch.contiguous_format).float()    
+
+    pixel_values = torch.stack([torch.from_numpy(example["pixel_values"]) for example in examples])
+    pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
+    filename_lst = [ os.path.basename(example['label']['path']) for example in examples ]
+    
+    return {"pixel_values": pixel_values, "segmap": segmap, 'filename': filename_lst}

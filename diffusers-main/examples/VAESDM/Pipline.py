@@ -15,16 +15,16 @@ class LDMPipeline(DiffusionPipeline):
     library implements for all the pipelines (such as downloading or saving, running on a particular device, etc.)
 
     Parameters:
-        vqvae ([`VQModel`]):
+        vae ([`VQModel`]):
             Vector-quantized (VQ) Model to encode and decode images to and from latent representations.
         unet ([`UNet2DModel`]): U-Net architecture to denoise the encoded image latents.
         scheduler ([`SchedulerMixin`]):
             [`DDIMScheduler`] is to be used in combination with `unet` to denoise the encoded image latents.
     """
 
-    def __init__(self, vqvae: VQModel, unet: UNet2DModel, scheduler: DDIMScheduler, torch_dtype=torch.float16):
+    def __init__(self, vae: VQModel, unet: UNet2DModel, scheduler: DDIMScheduler, torch_dtype=torch.float16):
         super().__init__()
-        self.register_modules(vqvae=vqvae, unet=unet, scheduler=scheduler)
+        self.register_modules(vae=vae, unet=unet, scheduler=scheduler)
         self.torch_dtype = torch_dtype
 
     @torch.no_grad()
@@ -85,8 +85,8 @@ class LDMPipeline(DiffusionPipeline):
             latents = self.scheduler.step(noise_prediction, t, latents, **extra_kwargs).prev_sample
 
         # decode the image latents with the VAE
-        latents /= self.vqvae.config.scaling_factor#(0.18215)
-        image = self.vqvae.decode(latents).sample
+        latents /= self.vae.config.scaling_factor#(0.18215)
+        image = self.vae.decode(latents).sample
 
         image = (image / 2 + 0.5).clamp(0, 1)
         image = image.cpu().permute(0, 2, 3, 1).numpy()
@@ -105,16 +105,16 @@ class SDMLDMPipeline(DiffusionPipeline):
     library implements for all the pipelines (such as downloading or saving, running on a particular device, etc.)
 
     Parameters:
-        vqvae ([`VQModel`]):
+        vae ([`VQModel`]):
             Vector-quantized (VQ) Model to encode and decode images to and from latent representations.
         unet ([`UNet2DModel`]): U-Net architecture to denoise the encoded image latents.
         scheduler ([`SchedulerMixin`]):
             [`DDIMScheduler`] is to be used in combination with `unet` to denoise the encoded image latents.
     """
 
-    def __init__(self, vqvae: VQModel, unet: UNet2DModel, scheduler: DDIMScheduler, torch_dtype=torch.float16):
+    def __init__(self, vae: VQModel, unet: UNet2DModel, scheduler: DDIMScheduler, torch_dtype=torch.float16):
         super().__init__()
-        self.register_modules(vqvae=vqvae, unet=unet, scheduler=scheduler)
+        self.register_modules(vae=vae, unet=unet, scheduler=scheduler)
         self.torch_dtype = torch_dtype
 
     @torch.no_grad()
@@ -180,8 +180,8 @@ class SDMLDMPipeline(DiffusionPipeline):
             latents = self.scheduler.step(noise_prediction, t, latents, **extra_kwargs).prev_sample
 
         # decode the image latents with the VAE
-        latents /= self.vqvae.config.scaling_factor#(0.18215)
-        image = self.vqvae.decode(latents).sample
+        latents /= self.vae.config.scaling_factor#(0.18215)
+        image = self.vae.decode(latents).sample
 
         image = (image / 2 + 0.5).clamp(0, 1)
         image = image.cpu().permute(0, 2, 3, 1).numpy()
@@ -200,14 +200,14 @@ class SDMPipeline(DiffusionPipeline):
     library implements for all the pipelines (such as downloading or saving, running on a particular device, etc.)
 
     Parameters:
-        vqvae ([`VQModel`]):
+        vae ([`VQModel`]):
             Vector-quantized (VQ) Model to encode and decode images to and from latent representations.
         unet ([`UNet2DModel`]): U-Net architecture to denoise the encoded image latents.
         scheduler ([`SchedulerMixin`]):
             [`DDIMScheduler`] is to be used in combination with `unet` to denoise the encoded image latents.
     """
 
-    def __init__(self, unet: UNet2DModel, scheduler: DDIMScheduler, torch_dtype=torch.float16):
+    def __init__(self, unet: UNet2DModel, scheduler: DDIMScheduler, torch_dtype=torch.float16, **_):
         super().__init__()
         self.register_modules(unet=unet, scheduler=scheduler)
         self.torch_dtype = torch_dtype
@@ -274,8 +274,8 @@ class SDMPipeline(DiffusionPipeline):
             latents = self.scheduler.step(noise_prediction, t, latents, **extra_kwargs).prev_sample
 
         # decode the image latents with the VAE
-        # latents /= self.vqvae.config.scaling_factor#(0.18215)
-        # image = self.vqvae.decode(latents).sample
+        # latents /= self.vae.config.scaling_factor#(0.18215)
+        # image = self.vae.decode(latents).sample
         image = latents
         image = (image / 2 + 0.5).clamp(0, 1)
         image = image.cpu().permute(0, 2, 3, 1).numpy()
