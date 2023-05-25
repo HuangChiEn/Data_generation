@@ -57,8 +57,8 @@ def get_dataloader(data_dir, image_size, batch_size, num_workers):
         train_dataset,
         shuffle=False,
         collate_fn=collate_fn,
-        batch_size=batch_size,
-        num_workers=num_workers,
+        batch_size=batch_size
+        #num_workers=num_workers,
     )
 
 def get_diffusion_modules(unet_path, numk_ckpt, vae_type=None):
@@ -98,10 +98,14 @@ def get_cfg_str():
     return '''
     seed = 42@int
     num_inference_steps = 20@int
-    scheduler_type = UniPC@str
-
     save_dir = Gen_results@str
-    num_save_im = 35@int
+    num_save_im = 20@int
+    
+    [scheduler]
+        scheduler_type = UniPC@str
+        [scheduler.from_config]
+            #config = CompVis/stable-diffusion-v1-4@str
+            #subfolder = scheduler@str
     
     [dataloader]
         data_dir = /data1/dataset/Cityscapes@str
@@ -129,7 +133,8 @@ if __name__ == "__main__":
     unet, vae = get_diffusion_modules(**cfger.diff_mod)
 
     pipe = get_pipeline(**cfger.pipe, unet=unet, vae=vae)
-    pipe = scheduler_setup(pipe, cfger.scheduler_type)
+    
+    pipe = scheduler_setup(pipe=pipe, **cfger.scheduler)
     pipe = pipe.to("cuda")
 
     makedirs(cfger.save_dir, exist_ok=True)

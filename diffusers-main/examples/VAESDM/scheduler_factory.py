@@ -1,26 +1,32 @@
 from functools import partial
-from diffusers import DPMSolverMultistepScheduler, UniPCMultistepScheduler, DPMSolverSinglestepScheduler
+from diffusers import DDPMScheduler, DPMSolverMultistepScheduler, UniPCMultistepScheduler, DPMSolverSinglestepScheduler
 from diffusers.pipeline_utils import DiffusionPipeline
 
-def build_proc(pip_sch_cfg=None, _sch=None, **kwargs):
-    if pip_sch_cfg:
-        return _sch.from_config(pip_sch_cfg)
-    return _sch(**kwargs)
+def build_proc(sch_cfg=None, _sch=None, **kwargs):
+    if kwargs:
+        return _sch(**kwargs)
+
+    type_str = str(type(sch_cfg))
+    if 'dict' in type_str:
+        return _sch.from_config(**sch_cfg)
+    return _sch.from_config(sch_cfg)
 
 scheduler_factory = {
     'UniPC' : partial(build_proc, _sch=UniPCMultistepScheduler),
     # DPM family 
+    'DDPM' : partial(build_proc, _sch=DDPMScheduler),
     'DPMSolver' : partial(build_proc, _sch=DPMSolverMultistepScheduler, algorithm_type='dpmsolver'),
     'DPMSolver++' : partial(build_proc, _sch=DPMSolverMultistepScheduler),
     'DPMSolverSingleStep' : partial(build_proc, _sch=DPMSolverSinglestepScheduler)
 }
 
-def scheduler_setup(pipe : DiffusionPipeline = None, scheduler_type : str = 'UniPC', **kwargs):
+def scheduler_setup(pipe : DiffusionPipeline = None, scheduler_type : str = 'UniPC', from_config=None, **kwargs):
     if not isinstance(pipe, DiffusionPipeline):
         raise TypeError(f'pipe should be DiffusionPipeline, but given {type(pipe)}\n')
 
+    sch_cfg = from_config if from_config else pipe.scheduler.config    
     pipe.scheduler = scheduler_factory[scheduler_type](**kwargs) if kwargs \
-                        else scheduler_factory[scheduler_type](pipe.scheduler.config)
+                        else scheduler_factory[scheduler_type](sch_cfg)
     return pipe
 
 

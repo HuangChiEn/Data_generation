@@ -256,7 +256,7 @@ def resize_arr(pil_list, image_size, keep_aspect=True, crop_size=None, label_siz
     # argument, which uses BOX downsampling at powers of two first.
     # Thus, we do it by hand to improve downsample quality.
     pil_image, pil_class, pil_instance, pil_clr_instance = pil_list
-
+    
     while min(*pil_image.size) >= 2 * image_size:
         pil_image = pil_image.resize(
             tuple(x // 2 for x in pil_image.size), resample=Image.BOX
