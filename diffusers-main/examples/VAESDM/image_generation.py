@@ -4,7 +4,7 @@ from Pipline import LDMPipeline, SDMLDMPipeline, SDMPipeline
 from diffusers import AutoencoderKL, DDPMScheduler, VQModel
 from model.unet_2d_sdm import SDMUNet2DModel
 from model.unet import UNetModel
-from Cityscapes import load_data, collate_fn
+from cityscape_ds_alpha import load_data, collate_fn
 from scheduler_factory import scheduler_setup
 
 Pipe_dispatcher = {
@@ -44,7 +44,6 @@ def preprocess_input(data, num_classes):
 
 
 def get_dataloader(data_dir, image_size, batch_size, num_workers):
-
     train_dataset = load_data(
         data_dir,
         resize_size=image_size,

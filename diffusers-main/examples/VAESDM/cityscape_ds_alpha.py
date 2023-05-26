@@ -162,7 +162,7 @@ class Cityscape_cache(Dataset):
     def __getitem__(self, idx):
         vae_cache = torch.load(self.cache_path[idx])
         # customized callback to deal with cache file
-        if cache_file_callbk:
+        if self.cache_file_callbk:
             return cache_file_callbk(vae_cache)
         
         # default procedure to load the cache file for VAE & VQVAE.. 
@@ -176,7 +176,7 @@ class Cityscape_cache(Dataset):
         else:
             x = vae_cache['x']
         
-        return {"pixel_values": x, "label": file['label']}
+        return {"pixel_values": x, "label": vae_cache['label']}
 
     def __len__(self):
         return len(self.cache_path)

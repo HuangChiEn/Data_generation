@@ -44,8 +44,8 @@ from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from diffusers.utils import check_min_version, deprecate, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
-
-from Cityscapes import load_data
+from cityscape_ds_alpha import load_data, collate_fn
+#from Cityscapes import load_data
 from Pipline import SDMLDMPipeline
 from model.unet_2d_sdm import SDMUNet2DModel
 from model.unet import UNetModel
@@ -199,7 +199,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="VQLDM-sdm540-model",
+        default="Test",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
@@ -676,7 +676,7 @@ def main():
         eps=args.adam_epsilon,
     )
 
-
+    '''
     train_dataset = load_data(
         dataset_mode="cityscapes",
         data_dir=args.train_data_dir,
@@ -687,6 +687,11 @@ def main():
         use_vae=True,
         mask_emb="resize",
         catch_path=args.cache_dir,
+    )
+    '''
+    train_dataset = load_data(
+        data_dir=args.train_data_dir,
+        cache_dir=args.cache_dir
     )
 
     def collate_fn(examples):
