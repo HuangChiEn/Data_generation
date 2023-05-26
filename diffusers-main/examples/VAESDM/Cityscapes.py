@@ -257,11 +257,10 @@ def resize_arr(pil_list, image_size, keep_aspect=True, crop_size=None, label_siz
     # Thus, we do it by hand to improve downsample quality.
     pil_image, pil_class, pil_instance, pil_clr_instance = pil_list
     
-    while min(*pil_image.size) >= 2 * image_size:
+    while min(*pil_image.size) >= 2 * image_size:  # 512 (2:1) -> (2:1, 1024 x 512)
         pil_image = pil_image.resize(
             tuple(x // 2 for x in pil_image.size), resample=Image.BOX
         )
-
     if keep_aspect:
         scale = image_size / min(*pil_image.size)
         pil_image = pil_image.resize(
@@ -286,7 +285,7 @@ def resize_arr(pil_list, image_size, keep_aspect=True, crop_size=None, label_siz
             pil_clr_instance = pil_clr_instance.resize((label_size[0] * 2, label_size[0]), resample=Image.NEAREST)
         else:
             pil_clr_instance = pil_clr_instance.resize(pil_image.size, resample=Image.NEAREST)
-
+    
     arr_image = np.array(pil_image)
     arr_class = np.array(pil_class)
     arr_instance = np.array(pil_instance) if pil_instance is not None else None
@@ -302,6 +301,7 @@ def resize_arr(pil_list, image_size, keep_aspect=True, crop_size=None, label_siz
         arr_class = arr_class[:, crop_x_label: crop_x_label + label_size[1]]
         arr_instance = arr_instance[: , crop_x_label : crop_x_label + label_size[1]] if arr_instance is not None else None
         arr_clr_instance = arr_clr_instance[: , crop_x_label : crop_x_label + label_size[1]] if arr_clr_instance is not None else None
+        
         return arr_image, arr_class, arr_instance, arr_clr_instance
     else:
         return arr_image, arr_class, arr_instance, arr_clr_instance
