@@ -58,9 +58,11 @@ class LDMPipeline(DiffusionPipeline):
             [`~pipelines.ImagePipelineOutput`] or `tuple`: [`~pipelines.model.ImagePipelineOutput`] if `return_dict` is
             True, otherwise a `tuple. When returning a tuple, the first element is a list with the generated images.
         """
+        if not isinstance(self.unet.config.sample_size,tuple):
+            self.unet.config.sample_size = (self.unet.config.sample_size,self.unet.config.sample_size)
 
         latents = randn_tensor(
-            (batch_size, self.unet.config.in_channels, 64, 64),
+            (batch_size, self.unet.config.in_channels, self.unet.config.sample_size[0], self.unet.config.sample_size[1]),
             generator=generator,
         )
         latents = latents.to(self.device).type(self.torch_dtype)
@@ -149,13 +151,15 @@ class SDMLDMPipeline(DiffusionPipeline):
             [`~pipelines.ImagePipelineOutput`] or `tuple`: [`~pipelines.model.ImagePipelineOutput`] if `return_dict` is
             True, otherwise a `tuple. When returning a tuple, the first element is a list with the generated images.
         """
+        if not isinstance(self.unet.config.sample_size, tuple):
+            self.unet.config.sample_size = (self.unet.config.sample_size, self.unet.config.sample_size)
 
         if segmap is None:
             print("Didn't inpute any segmap, use the empty as the input")
-            segmap = torch.zeros(batch_size,self.unet.config.segmap_channels, 135, 180)
+            segmap = torch.zeros(batch_size,self.unet.config.segmap_channels, self.unet.config.sample_size[0], self.unet.config.sample_size[1])
         segmap = segmap.to(self.device).type(self.torch_dtype)
         latents = randn_tensor(
-            (batch_size, self.unet.config.in_channels, 135, 180),
+            (batch_size, self.unet.config.in_channels, self.unet.config.sample_size[0], self.unet.config.sample_size[1]),
             generator=generator,
         )
         latents = latents.to(self.device).type(self.torch_dtype)
@@ -207,7 +211,7 @@ class SDMPipeline(DiffusionPipeline):
             [`DDIMScheduler`] is to be used in combination with `unet` to denoise the encoded image latents.
     """
 
-    def __init__(self, unet: UNet2DModel, scheduler: DDIMScheduler, torch_dtype=torch.float16, **_):
+    def __init__(self, unet: UNet2DModel, scheduler: DDIMScheduler, torch_dtype=torch.float16, vae=None):
         super().__init__()
         self.register_modules(unet=unet, scheduler=scheduler)
         self.torch_dtype = torch_dtype
@@ -244,14 +248,18 @@ class SDMPipeline(DiffusionPipeline):
             [`~pipelines.ImagePipelineOutput`] or `tuple`: [`~pipelines.model.ImagePipelineOutput`] if `return_dict` is
             True, otherwise a `tuple. When returning a tuple, the first element is a list with the generated images.
         """
+        if not isinstance(self.unet.config.sample_size, tuple):
+            self.unet.config.sample_size = (self.unet.config.sample_size, self.unet.config.sample_size)
+
         if segmap is None:
             print("Didn't inpute any segmap, use the empty as the input")
-            torch.zeros(batch_size,self.unet.config.segmap_channels, self.unet.config.sample_size[0], self.unet.config.sample_size[1])
+            segmap = torch.zeros(batch_size,self.unet.config.segmap_channels, self.unet.config.sample_size[0], self.unet.config.sample_size[1])
         segmap = segmap.to(self.device).type(self.torch_dtype)
         latents = randn_tensor(
-            (batch_size, self.unet.config.in_channels, 270, 360),
+            (batch_size, self.unet.config.in_channels, self.unet.config.sample_size[0], self.unet.config.sample_size[1]),
             generator=generator,
         )
+
         latents = latents.to(self.device).type(self.torch_dtype)
 
         # scale the initial noise by the standard deviation required by the scheduler (need to check)

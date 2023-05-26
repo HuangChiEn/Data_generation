@@ -13,7 +13,7 @@ def build_proc(sch_cfg=None, _sch=None, **kwargs):
 
 scheduler_factory = {
     'UniPC' : partial(build_proc, _sch=UniPCMultistepScheduler),
-    # DPM family 
+    # DPM family
     'DDPM' : partial(build_proc, _sch=DDPMScheduler),
     'DPMSolver' : partial(build_proc, _sch=DPMSolverMultistepScheduler, algorithm_type='dpmsolver'),
     'DPMSolver++' : partial(build_proc, _sch=DPMSolverMultistepScheduler),

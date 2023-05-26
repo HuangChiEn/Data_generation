@@ -42,6 +42,7 @@ from diffusers.utils import check_min_version, deprecate, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
 
 from model.unet_2d_sdm import SDMUNet2DModel
+from model.unet import UNetModel
 from Cityscapes import load_data
 from Pipline import SDMPipeline
 
@@ -104,7 +105,6 @@ def log_validation(unet, noise_scheduler, args, accelerator, weight_dtype, epoch
 
     del pipeline
     torch.cuda.empty_cache()
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Simple example of a training script.")
@@ -185,7 +185,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="attnsdm-model",
+        default="testFinalattnsdm-model",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
@@ -219,7 +219,7 @@ def parse_args():
         help="whether to randomly flip images horizontally",
     )
     parser.add_argument(
-        "--train_batch_size", type=int, default=6, help="Batch size (per device) for the training dataloader."
+        "--train_batch_size", type=int, default=12, help="Batch size (per device) for the training dataloader."
     )
     parser.add_argument("--num_train_epochs", type=int, default=1000)
     parser.add_argument(
@@ -231,7 +231,7 @@ def parse_args():
     parser.add_argument(
         "--gradient_accumulation_steps",
         type=int,
-        default=4,
+        default=2,
         help="Number of updates steps to accumulate before performing a backward/update pass.",
     )
     parser.add_argument(
@@ -346,7 +346,7 @@ def parse_args():
     parser.add_argument(
         "--checkpointing_steps",
         type=int,
-        default=2000,
+        default=1000,
         help=(
             "Save a checkpoint of the training state every X updates. These checkpoints are only suitable for resuming"
             " training using `--resume_from_checkpoint`."
@@ -496,28 +496,49 @@ def main():
     # Freeze vae
     #vae.requires_grad_(False)
 
-    unet = SDMUNet2DModel(
-        sample_size=args.resolution,
+    # unet = SDMUNet2DModel(
+    #     sample_size=args.resolution,
+    #     in_channels=3,
+    #     out_channels=3,
+    #     layers_per_block=2,
+    #     block_out_channels=(256, 256, 512, 1024, 1024),
+    #     down_block_types=(
+    #         "DownBlock2D",
+    #         "DownBlock2D",
+    #         "DownBlock2D",
+    #         "AttnDownBlock2D",
+    #         "AttnDownBlock2D",
+    #     ),
+    #     up_block_types=(
+    #         "SDMAttnUpBlock2D",
+    #         "SDMAttnUpBlock2D",
+    #         "SDMUpBlock2D",
+    #         "SDMUpBlock2D",
+    #         "SDMUpBlock2D",
+    #     ),
+    #     segmap_channels=args.segmap_channels+1
+    # )
+
+    unet = UNetModel(
+        image_size=args.resolution,
         in_channels=3,
+        model_channels=256,
         out_channels=3,
-        layers_per_block=2,
-        block_out_channels=(256, 256, 512, 1024, 1024),
-        down_block_types=(
-            "DownBlock2D",
-            "DownBlock2D",
-            "DownBlock2D",
-            "DownBlock2D",
-            "AttnDownBlock2D",
-        ),
-        up_block_types=(
-            "SDMAttnUpBlock2D",
-            "SDMUpBlock2D",
-            "SDMUpBlock2D",
-            "SDMUpBlock2D",
-            "SDMUpBlock2D",
-        ),
-        segmap_channels=args.segmap_channels+1
+        num_res_blocks=2,
+        attention_resolutions=(8,16,32),
+        dropout=0,
+        channel_mult=(1, 1, 2, 4, 4),
+        num_heads= 64,
+        num_head_channels= -1,
+        num_heads_upsample= -1,
+        use_scale_shift_norm=True,
+        resblock_updown=True,
+        use_new_attention_order=False,
+        num_classes=args.segmap_channels+1,
+        mask_emb="resize",
+        use_checkpoint=True,
     )
+
     # Create EMA for the unet.
     if args.use_ema:
         ema_unet = EMAModel(
@@ -747,6 +768,7 @@ def main():
     )
 
     # Prepare everything with our `accelerator`.
+
     unet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         unet, optimizer, train_dataloader, lr_scheduler
     )
@@ -759,11 +781,12 @@ def main():
     weight_dtype = torch.float32
     if accelerator.mixed_precision == "fp16":
         weight_dtype = torch.float16
+        #unet.convert_to_fp16()
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
     # Move vae to gpu and cast to weight_dtype
-    #vae.to(accelerator.device, dtype=weight_dtype)
+    # unet.to(accelerator.device, dtype=weight_dtype)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)

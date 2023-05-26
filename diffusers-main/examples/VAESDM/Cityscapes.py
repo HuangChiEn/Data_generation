@@ -50,10 +50,12 @@ def load_data(
             instances = [x for x in labels_file if x.endswith('_instanceIds.png')]
             clr_instances = [x for x in labels_file if x.endswith('_color.png')]
         else:
+            print(catch_path)
             all_files = _list_image_files_recursively(os.path.join(catch_path, 'train' if is_train else 'val'), "pt")
             labels_file = None
             classes = None
             instances = None
+            clr_instances = None
 
     elif dataset_mode == 'ade20k':
         all_files = _list_image_files_recursively(os.path.join(data_dir, 'images', 'training' if is_train else 'validation'))
@@ -147,14 +149,16 @@ class ImageDataset(Dataset):
         if self.catch_mode:
             if self.dataset_mode == 'cityscapes':
                 file = torch.load(self.local_images[idx])
-                mean = file['x']['mean']
-                std = file['x']['std']
-                sample = torch.randn(mean.shape)
-                x = mean + std * sample
-                x = x * 0.18215
+                if  isinstance(file['x'], dict):
+                    mean = file['x']['mean']
+                    std = file['x']['std']
+                    sample = torch.randn(mean.shape)
+                    x = mean + std * sample
+                    x = x * 0.18215
+                else:
+                    x = file['x']
                 if self.mask_emb == "resize":
                     return {"pixel_values": x, "label": file['label']}
-                    
                 elif self.mask_emb == "vae_encode":
                     label_latent = []
                     mean = file['label']['mean']

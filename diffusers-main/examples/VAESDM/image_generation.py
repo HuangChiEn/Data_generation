@@ -3,7 +3,8 @@ import torch
 from Pipline import LDMPipeline, SDMLDMPipeline, SDMPipeline
 from diffusers import AutoencoderKL, DDPMScheduler, VQModel
 from model.unet_2d_sdm import SDMUNet2DModel
-from cityscape_ds_alpha import load_data, collate_fn
+from model.unet import UNetModel
+from Cityscapes import load_data, collate_fn
 from scheduler_factory import scheduler_setup
 
 Pipe_dispatcher = {
@@ -43,7 +44,7 @@ def preprocess_input(data, num_classes):
 
 
 def get_dataloader(data_dir, image_size, batch_size, num_workers):
-    
+
     train_dataset = load_data(
         data_dir,
         resize_size=image_size,
@@ -60,9 +61,9 @@ def get_dataloader(data_dir, image_size, batch_size, num_workers):
 def get_diffusion_modules(unet_path, numk_ckpt, vae_type=None):
     # Load pretrained unet from local..
     unet_path = path.join(unet_path, f"checkpoint-{numk_ckpt*1000}")
-    unet = SDMUNet2DModel.from_pretrained(unet_path, subfolder='unet').to('cuda').to(torch.float16)
+    unet = UNetModel.from_pretrained(unet_path, subfolder='unet').to('cuda').to(torch.float16)
     if not vae_type:
-        return unet
+        return unet, None
 
     # Load hugging face VAE on cuda with fp16..
     if vae_type == 'KL':
@@ -94,14 +95,10 @@ def get_cfg_str():
     return '''
     seed = 42@int
     num_inference_steps = 20@int
+    scheduler_type = UniPC@str
+
     save_dir = Gen_results@str
-    num_save_im = 20@int
-    
-    [scheduler]
-        scheduler_type = UniPC@str
-        [scheduler.from_config]
-            #config = CompVis/stable-diffusion-v1-4@str
-            #subfolder = scheduler@str
+    num_save_im = 35@int
     
     [dataloader]
         data_dir = /data1/dataset/Cityscapes@str
@@ -110,7 +107,7 @@ def get_cfg_str():
         num_workers = 1@int
 
     [diff_mod]
-        unet_path = /data/harry/Data_generation/diffusers-main/examples/VAESDM/VQLDM-sdm540-model@str
+        unet_path = /data/harry/Data_generation/diffusers-main/examples/VAESDM/testFinalVQLDM-sdm540-model@str
         numk_ckpt = 62@int
         vae_type = VQ@str
     
@@ -129,12 +126,12 @@ if __name__ == "__main__":
     unet, vae = get_diffusion_modules(**cfger.diff_mod)
 
     pipe = get_pipeline(**cfger.pipe, unet=unet, vae=vae)
-    
-    pipe = scheduler_setup(pipe=pipe, **cfger.scheduler)
+    #pipe = scheduler_setup(pipe, cfger.scheduler_type)
+
     pipe = pipe.to("cuda")
 
     makedirs(cfger.save_dir, exist_ok=True)
-    num_itrs = (cfger.num_save_im // cfger.dataloader['batch_size']) + 1
+    num_itrs = (cfger.num_save_im // cfger.dataloader['batch_size'])
     
     # Generate the image : 
     # we put it in main block, 
@@ -143,6 +140,9 @@ if __name__ == "__main__":
     generator = torch.manual_seed(cfger.seed)
 
     for idx, batch in enumerate(data_ld, 0):
+        if idx >= num_itrs:
+            break
+
         fn_lst.extend(batch['filename'])
         clr_msks = [ clr_inst.permute(0, 3, 1, 2) / 255. for clr_inst in batch["segmap"]['clr_instance'] ]
         clr_msk_lst.extend(clr_msks)
@@ -152,8 +152,7 @@ if __name__ == "__main__":
         images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps).images
         img_lst.extend(images)
 
-        if idx >= num_itrs:
-            break
+
     
     for idx, (image, clr_msk, fn_w_ext) in enumerate( zip(img_lst, clr_msk_lst, fn_lst) ):
         if idx <= cfger.num_save_im:

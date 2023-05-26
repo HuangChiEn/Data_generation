@@ -22,8 +22,7 @@ from diffusers.utils import BaseOutput
 from diffusers.models.embeddings import GaussianFourierProjection, TimestepEmbedding, Timesteps
 from diffusers.models.modeling_utils import ModelMixin
 from model.unet_2d_blocks import UNetSDMMidBlock2D, get_down_block, get_up_block, UNetSDMMidBlock2D
-from diffusers.models.attention import AttentionBlock
-
+from diffusers.loaders import UNet2DConditionLoadersMixin
 
 @dataclass
 class UNet2DOutput(BaseOutput):
@@ -35,8 +34,7 @@ class UNet2DOutput(BaseOutput):
 
     sample: torch.FloatTensor
 
-
-class SDMUNet2DModel(ModelMixin, ConfigMixin):
+class SDMUNet2DModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
     r"""
     UNet2DModel is a 2D UNet model that takes in a noisy sample and a timestep and returns sample shaped output.
 
@@ -80,6 +78,7 @@ class SDMUNet2DModel(ModelMixin, ConfigMixin):
             class conditioning with `class_embed_type` equal to `None`.
     """
 
+    _supports_gradient_checkpointing = True
     @register_to_config
     def __init__(
         self,
@@ -100,7 +99,7 @@ class SDMUNet2DModel(ModelMixin, ConfigMixin):
         attention_head_dim: Optional[int] = 8,
         norm_num_groups: int = 32,
         norm_eps: float = 1e-5,
-        resnet_time_scale_shift: str = "default",
+        resnet_time_scale_shift: str = "scale_shift",
         add_attention: bool = True,
         class_embed_type: Optional[str] = None,
         num_class_embeds: Optional[int] = None,
@@ -220,7 +219,9 @@ class SDMUNet2DModel(ModelMixin, ConfigMixin):
         self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=num_groups_out, eps=norm_eps)
         self.conv_act = nn.SiLU()
         self.conv_out = nn.Conv2d(block_out_channels[0], out_channels, kernel_size=3, padding=1)
-
+    def _set_gradient_checkpointing(self, module, value=False):
+        #if isinstance(module, (CrossAttnDownBlock2D, DownBlock2D, CrossAttnUpBlock2D, UpBlock2D)):
+        module.gradient_checkpointing = value
     def forward(
         self,
         sample: torch.FloatTensor,
@@ -247,6 +248,7 @@ class SDMUNet2DModel(ModelMixin, ConfigMixin):
             sample = 2 * sample - 1.0
 
         # 1. time
+        #print(timestep.shape)
         timesteps = timestep
         if not torch.is_tensor(timesteps):
             timesteps = torch.tensor([timesteps], dtype=torch.long, device=sample.device)
@@ -320,3 +322,36 @@ class SDMUNet2DModel(ModelMixin, ConfigMixin):
             return (sample,)
 
         return UNet2DOutput(sample=sample)
+
+
+if __name__ == "__main__":
+    path = 'output.txt'
+    f = open(path, 'w')
+
+    unet = SDMUNet2DModel(
+        sample_size=270,
+        in_channels=3,
+        out_channels=3,
+        layers_per_block=2,
+        block_out_channels=(256, 256, 512, 1024, 1024),
+        down_block_types=(
+            "ResnetDownsampleBlock2D",
+            "ResnetDownsampleBlock2D",
+            "ResnetDownsampleBlock2D",
+            "AttnDownBlock2D",
+            "AttnDownBlock2D",
+        ),
+        up_block_types=(
+            "SDMAttnUpBlock2D",
+            "SDMAttnUpBlock2D",
+            "SDMResnetUpsampleBlock2D",
+            "SDMResnetUpsampleBlock2D",
+            "SDMResnetUpsampleBlock2D",
+        ),
+        segmap_channels=34+1
+    )
+
+    print(unet,file=f)
+    f.close()
+
+    #summary(unet, [(1, 3, 270, 360), (1, 3, 270, 360), (2,)], device="cpu")

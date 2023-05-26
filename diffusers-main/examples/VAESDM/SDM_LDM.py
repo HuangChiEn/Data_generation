@@ -45,10 +45,10 @@ from diffusers.training_utils import EMAModel
 from diffusers.utils import check_min_version, deprecate, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
 
-#from Cityscapes import load_data
-from cityscape_ds_alpha import load_data, collate_fn
+from Cityscapes import load_data
 from Pipline import SDMLDMPipeline
 from model.unet_2d_sdm import SDMUNet2DModel
+from model.unet import UNetModel
 
 if is_wandb_available():
     import wandb
@@ -199,13 +199,13 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="Test",
+        default="VQLDM-sdm540-model",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
         "--cache_dir",
         type=str,
-        default="cache",
+        default="/data/harry/Cityscape_catch/VQVAE_540_resize",
         help="The directory where the downloaded models and datasets will be stored.",
     )
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
@@ -233,7 +233,7 @@ def parse_args():
         help="whether to randomly flip images horizontally",
     )
     parser.add_argument(
-        "--train_batch_size", type=int, default=8, help="Batch size (per device) for the training dataloader."
+        "--train_batch_size", type=int, default=48, help="Batch size (per device) for the training dataloader."
     )
     parser.add_argument("--num_train_epochs", type=int, default=1000)
     parser.add_argument(
@@ -245,7 +245,7 @@ def parse_args():
     parser.add_argument(
         "--gradient_accumulation_steps",
         type=int,
-        default=3,
+        default=1,
         help="Number of updates steps to accumulate before performing a backward/update pass.",
     )
     parser.add_argument(
@@ -506,35 +506,58 @@ def main():
 
     # Load scheduler and models.
     noise_scheduler = DDPMScheduler.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="scheduler")
+
     #vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae", revision=args.revision)
     vae = VQModel.from_pretrained("CompVis/ldm-super-resolution-4x-openimages", subfolder="vqvae", revision=args.revision)
     # Freeze vae
     vae.requires_grad_(False)
 
-    unet = SDMUNet2DModel(
-        sample_size=args.resolution / 4,
+
+    # unet = SDMUNet2DModel(
+    #     sample_size=args.resolution / 4,
+    #     in_channels=vae.config.latent_channels,
+    #     out_channels=vae.config.latent_channels,
+    #     layers_per_block=2,
+    #     block_out_channels=(128, 128, 256, 256, 512, 512),
+    #     down_block_types=(
+    #         "ResnetDownsampleBlock2D",
+    #         "ResnetDownsampleBlock2D",
+    #         "ResnetDownsampleBlock2D",
+    #         "AttnDownBlock2D",
+    #         "AttnDownBlock2D",
+    #         "AttnDownBlock2D",
+    #     ),
+    #     up_block_types=(
+    #         "SDMAttnUpBlock2D",
+    #         "SDMAttnUpBlock2D",
+    #         "SDMAttnUpBlock2D",
+    #         "SDMResnetUpsampleBlock2D",
+    #         "SDMResnetUpsampleBlock2D",
+    #         "SDMResnetUpsampleBlock2D",
+    #     ),
+    #     segmap_channels=args.segmap_channels+1
+    # )
+
+    unet = UNetModel(
+        image_size=args.resolution / 4,
         in_channels=vae.config.latent_channels,
+        model_channels=128,
         out_channels=vae.config.latent_channels,
-        layers_per_block=2,
-        block_out_channels=(128, 128, 256, 256, 512, 512),
-        down_block_types=(
-            "ResnetDownsampleBlock2D",
-            "ResnetDownsampleBlock2D",
-            "ResnetDownsampleBlock2D",
-            "AttnDownBlock2D",
-            "AttnDownBlock2D",
-            "AttnDownBlock2D",
-        ),
-        up_block_types=(
-            "SDMAttnUpBlock2D",
-            "SDMAttnUpBlock2D",
-            "SDMAttnUpBlock2D",
-            "SDMResnetUpsampleBlock2D",
-            "SDMResnetUpsampleBlock2D",
-            "SDMResnetUpsampleBlock2D",
-        ),
-        segmap_channels=args.segmap_channels+1
+        num_res_blocks=2,
+        attention_resolutions=(8, 16, 32),
+        dropout=0,
+        channel_mult=(1, 1, 2, 2, 4, 4),
+        num_heads=8,
+        num_head_channels=-1,
+        num_heads_upsample=-1,
+        use_scale_shift_norm=True,
+        resblock_updown=True,
+        use_new_attention_order=False,
+        num_classes=args.segmap_channels + 1,
+        mask_emb="resize",
+        use_checkpoint=True,
     )
+
     # Create EMA for the unet.
     if args.use_ema:
         ema_unet = EMAModel(
@@ -653,7 +676,7 @@ def main():
         eps=args.adam_epsilon,
     )
 
-    '''
+
     train_dataset = load_data(
         dataset_mode="cityscapes",
         data_dir=args.train_data_dir,
@@ -661,24 +684,19 @@ def main():
         random_crop=False,
         random_flip=args.random_flip,
         is_train=True,
-        use_vae=False,
-        mask_emb="resize"
+        use_vae=True,
+        mask_emb="resize",
+        catch_path=args.cache_dir,
     )
-    '''
-    train_dataset = load_data(
-        data_dir,
-        resize_size=image_size,
-        subset_type='train'
-    )
-    
+
     def collate_fn(examples):
         segmap = {}
         for k in examples[0]["label"].keys():
             if k != "path":
-                segmap[k] = torch.stack([torch.from_numpy(example["label"][k]) for example in examples])
+                segmap[k] = torch.stack( [torch.from_numpy(example["label"][k]) if isinstance(example["label"][k],np.ndarray) else example["label"][k] for example in examples])
                 segmap[k] = segmap[k].to(memory_format=torch.contiguous_format).float()
 
-        pixel_values = torch.stack([torch.from_numpy(example["pixel_values"]) for example in examples])
+        pixel_values = torch.stack([torch.from_numpy(example["pixel_values"]) if isinstance(example["pixel_values"],np.ndarray) else example["pixel_values"] for example in examples])
         pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
 
         return {"pixel_values": pixel_values, "segmap": segmap}
@@ -793,8 +811,12 @@ def main():
 
             with accelerator.accumulate(unet):
                 # Convert images to latent space
-                latents = vae.encode(batch["pixel_values"].to(weight_dtype)).latents #.latent_dist.sample()
-                latents = latents * vae.config.scaling_factor
+                if not args.cache_dir:
+                    latents = vae.encode(batch["pixel_values"].to(weight_dtype)).latents #.latent_dist.sample()
+                    latents = latents * vae.config.scaling_factor
+                    print("vae_encode")
+                else:
+                    latents = batch["pixel_values"].to(weight_dtype)
                 segmap = preprocess_input(batch["segmap"], args.segmap_channels)
                 #print(latents.shape, segmap.shape)
 

@@ -23,7 +23,7 @@ from diffusers.models.attention_processor import Attention, AttnAddedKVProcessor
 from diffusers.models.dual_transformer_2d import DualTransformer2DModel
 from diffusers.models.resnet import Downsample2D, FirDownsample2D, FirUpsample2D, KDownsample2D, KUpsample2D, ResnetBlock2D, Upsample2D
 from diffusers.models.transformer_2d import Transformer2DModel
-
+import math
 
 def get_down_block(
     down_block_type,
@@ -860,11 +860,23 @@ class AttnDownBlock2D(nn.Module):
         else:
             self.downsamplers = None
 
+        self.gradient_checkpointing = False
     def forward(self, hidden_states, temb=None):
         output_states = ()
 
         for resnet, attn in zip(self.resnets, self.attentions):
-            hidden_states = resnet(hidden_states, temb)
+            if self.training and self.gradient_checkpointing:
+
+                def create_custom_forward(module):
+                    def custom_forward(*inputs):
+                        return module(*inputs)
+
+                    return custom_forward
+
+                hidden_states = torch.utils.checkpoint.checkpoint(create_custom_forward(resnet), hidden_states, temb)
+            else:
+                hidden_states = resnet(hidden_states, temb)
+
             hidden_states = attn(hidden_states)
             output_states += (hidden_states,)
 
@@ -1455,7 +1467,7 @@ class ResnetDownsampleBlock2D(nn.Module):
 
     def forward(self, hidden_states, temb=None):
         output_states = ()
-
+        #print(self.gradient_checkpointing)
         for resnet in self.resnets:
             if self.training and self.gradient_checkpointing:
 
@@ -1917,9 +1929,11 @@ class SDMAttnUpBlock2D(nn.Module):
         self.resnets = nn.ModuleList(resnets)
 
         if add_upsample:
-            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=False, out_channels=out_channels, name="conv_2")])
+            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=True, out_channels=out_channels, name="conv_2")])
         else:
             self.upsamplers = None
+
+        self.gradient_checkpointing = False
 
     def forward(self, hidden_states, segmap, res_hidden_states_tuple, temb=None):
         for resnet, attn in zip(self.resnets, self.attentions):
@@ -1940,7 +1954,18 @@ class SDMAttnUpBlock2D(nn.Module):
             #print(hidden_states.shape, res_hidden_states.shape)
             hidden_states = torch.cat([hidden_states, res_hidden_states], dim=1)
 
-            hidden_states = resnet(hidden_states, segmap, temb)
+            if self.training and self.gradient_checkpointing:
+                def create_custom_forward(module):
+                    def custom_forward(*inputs):
+                        return module(*inputs)
+                    return custom_forward
+
+                hidden_states = torch.utils.checkpoint.checkpoint(create_custom_forward(resnet), hidden_states, segmap, temb)
+            else:
+                hidden_states = resnet(hidden_states, segmap, temb)
+
+            #hidden_states = torch.cat([hidden_states, res_hidden_states], dim=1)
+
             hidden_states = attn(hidden_states)
 
         if self.upsamplers is not None:
@@ -2201,7 +2226,7 @@ class SDMUpBlock2D(nn.Module):
         self.resnets = nn.ModuleList(resnets)
 
         if add_upsample:
-            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=False, out_channels=out_channels)])
+            self.upsamplers = nn.ModuleList([Upsample2D(out_channels, use_conv=True, out_channels=out_channels)])
         else:
             self.upsamplers = None
 
@@ -2230,7 +2255,7 @@ class SDMUpBlock2D(nn.Module):
 
                     return custom_forward
 
-                hidden_states = torch.utils.checkpoint.checkpoint(create_custom_forward(resnet), segmap, hidden_states, temb)
+                hidden_states = torch.utils.checkpoint.checkpoint(create_custom_forward(resnet), hidden_states, segmap, temb)
             else:
                 hidden_states = resnet(hidden_states, segmap, temb)
 
@@ -2728,6 +2753,8 @@ class SDMResnetUpsampleBlock2D(nn.Module):
         self.gradient_checkpointing = False
 
     def forward(self, hidden_states, segmap, res_hidden_states_tuple, temb=None, upsample_size=None):
+
+        #print(self.gradient_checkpointing)
         for resnet in self.resnets:
             # pop res hidden states
             res_hidden_states = res_hidden_states_tuple[-1]
@@ -2745,14 +2772,13 @@ class SDMResnetUpsampleBlock2D(nn.Module):
             hidden_states = torch.cat([hidden_states, res_hidden_states], dim=1)
 
             if self.training and self.gradient_checkpointing:
-
                 def create_custom_forward(module):
                     def custom_forward(*inputs):
                         return module(*inputs)
 
                     return custom_forward
 
-                hidden_states = torch.utils.checkpoint.checkpoint(create_custom_forward(resnet), hidden_states, temb)
+                hidden_states = torch.utils.checkpoint.checkpoint(create_custom_forward(resnet), hidden_states, segmap, temb)
             else:
                 hidden_states = resnet(hidden_states, segmap, temb)
 
@@ -3215,7 +3241,7 @@ class SPADEGroupNorm(nn.Module):
     def __init__(self, norm_nc, label_nc, eps = 1e-5):
         super().__init__()
 
-        # self.norm = nn.GroupNorm(32, norm_nc, affine=False) # 32/16
+        self.norm = nn.GroupNorm(32, norm_nc, affine=False) # 32/16
 
         self.eps = eps
         nhidden = 128
@@ -3228,7 +3254,7 @@ class SPADEGroupNorm(nn.Module):
 
     def forward(self, x, segmap):
         # Part 1. generate parameter-free normalized activations
-        # x = self.norm(x)
+        x = self.norm(x)
 
         # Part 2. produce scaling and bias conditioned on semantic map
         segmap = F.interpolate(segmap, size=x.size()[2:], mode='nearest')
@@ -3239,6 +3265,7 @@ class SPADEGroupNorm(nn.Module):
         # apply scale and bias
         return x * (1 + gamma) + beta
 
+# to support the gradient checkpoint
 class SDMResnetBlock2D(ResnetBlock2D):
     r"""
     A Resnet block.
@@ -3284,6 +3311,9 @@ class SDMResnetBlock2D(ResnetBlock2D):
         self.SPADE_norm2 = SPADEGroupNorm(out_channels, segmap_channels)
 
     def forward(self, input_tensor, segmap, temb):
+
+        return torch.utils.checkpoint.checkpoint(self._forward, input_tensor, segmap, temb)
+    def _forward(self, input_tensor, segmap, temb):
         hidden_states = input_tensor
 
         if self.time_embedding_norm == "ada_group":
@@ -3292,8 +3322,6 @@ class SDMResnetBlock2D(ResnetBlock2D):
             hidden_states = self.norm1(hidden_states)
 
         hidden_states = self.SPADE_norm1(hidden_states,segmap)
-
-
 
         hidden_states = self.nonlinearity(hidden_states)
 
@@ -3315,17 +3343,16 @@ class SDMResnetBlock2D(ResnetBlock2D):
 
         if temb is not None and self.time_embedding_norm == "default":
             hidden_states = hidden_states + temb
+            hidden_states = self.SPADE_norm2(hidden_states, segmap)
 
         if self.time_embedding_norm == "ada_group":
             hidden_states = self.norm2(hidden_states, temb)
         else:
             hidden_states = self.norm2(hidden_states)
 
-        hidden_states = self.SPADE_norm2(hidden_states,segmap)
-
         if temb is not None and self.time_embedding_norm == "scale_shift":
             scale, shift = torch.chunk(temb, 2, dim=1)
-            hidden_states = hidden_states * (1 + scale) + shift
+            hidden_states = self.SPADE_norm2(hidden_states,segmap) * (1 + scale) + shift
 
         hidden_states = self.nonlinearity(hidden_states)
 
@@ -3338,3 +3365,11 @@ class SDMResnetBlock2D(ResnetBlock2D):
         output_tensor = (input_tensor + hidden_states) / self.output_scale_factor
 
         return output_tensor
+
+class ResnetBlock2D(ResnetBlock2D):
+    def forward(self, input_tensor, temb):
+        return torch.utils.checkpoint.checkpoint(super().forward, input_tensor, temb)
+
+class AttentionBlock(AttentionBlock):
+    def forward(self, hidden_states):
+        return torch.utils.checkpoint.checkpoint(super().forward, hidden_states)
