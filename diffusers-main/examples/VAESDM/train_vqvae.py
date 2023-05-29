@@ -3,15 +3,22 @@ from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
 from tqdm.auto import tqdm
+import torch
+from torch.utils.data import DataLoader
 
 from diffusers.utils.import_utils import is_xformers_available
 
 from cityscape_ds_alpha import load_data, collate_fn
 from vqvae.hf_vqvae import VQModel
+from vqvae.vqperceptual import VQLPIPSWithDiscriminator
 
+from easy_configer.IO_Converter import IO_Converter
+
+import math
 import logging
 logger = get_logger(__name__, log_level="INFO")
 
+## disabled currently..
 ## TODO : chk that is the model need this to override this method ?
 def enable_xformers(model):
     if is_xformers_available():
@@ -25,40 +32,32 @@ def enable_xformers(model):
     else:
         raise ValueError("xformers is not available. Make sure it is installed correctly")
 
-
-def get_dataloader(data_dir, image_size, batch_size, num_workers):
-    train_dataset = load_data(
+def get_dataloader(data_dir, image_size):
+    all_ds = load_data(
         data_dir,
         resize_size=image_size,
-        subset_type='train'
+        subset_type='all',
+        ret_dataset=True
     )
-    return torch.utils.data.DataLoader(
-        train_dataset,
-        shuffle=False,
-        collate_fn=collate_fn,
-        batch_size=batch_size
-        num_workers=num_workers
-    )
-
-## TODO : implement resume mechanism..
-def resume_mechanism():
-    raise NotImplementedError
+    return all_ds['train'], all_ds['val']
 
 
 ## TODO : enable logging mechanism
 def main(cfger):
     ## Setup accelerator..
-    accelerator_project_config = ProjectConfiguration(total_limit=cfger.checkpoints_total_limit)
+    logging_dir = os.path.join(cfger.output_dir, cfger.logging_dir)
+    total_limit = cfger.checkpoints_total_limit if cfger.checkpoints_total_limit!=-1 else None
     accelerator = Accelerator(
         gradient_accumulation_steps=cfger.gradient_accumulation_steps,
         mixed_precision=cfger.mixed_precision,
+        project_config=ProjectConfiguration(total_limit=total_limit),
         log_with=cfger.report_to,
         logging_dir=logging_dir,
-        project_config=accelerator_project_config,
     )
 
     ## Setup model
     vqvae = VQModel(**cfger.model)
+    loss_func = VQLPIPSWithDiscriminator(**cfger.loss)
 
     # accelerator plugins ~ enjoy the community
     if cfger.enable_xformers_memory_efficient_attention:
@@ -91,14 +90,26 @@ def main(cfger):
 
     optimizer = optimizer_cls(
         vqvae.parameters(),
-        lr=cfger.learning_rate,
-        betas=(cfger.adam_beta1, cfger.adam_beta2),
-        weight_decay=cfger.adam_weight_decay,
-        eps=cfger.adam_epsilon,
+        **cfger.optimizer
     )
 
     ## Setup dataloader 
-    train_dataloader = get_dataloader(**cfger.data)
+    train_dataset, val_dataset = get_dataloader(
+        cfger.data['data_dir'], 
+        cfger.data['image_size']
+    )
+    train_dataloader = DataLoader(
+        train_dataset, 
+        collate_fn=collate_fn, 
+        batch_size=cfger.data['batch_size'], 
+        num_workers=cfger.data['num_workers']
+    )
+    val_dataloader = DataLoader(
+        val_dataset, 
+        collate_fn=collate_fn, 
+        batch_size=cfger.data['batch_size'], 
+        num_workers=cfger.data['num_workers']
+    )
     
     # Prepare everything with our `accelerator`.
     vqvae, optimizer, train_dataloader = accelerator.prepare(
@@ -117,7 +128,7 @@ def main(cfger):
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / cfger.gradient_accumulation_steps)
-    if cfger.max_train_steps is None:
+    if cfger.max_train_steps == -1:
         cfger.max_train_steps = cfger.num_train_epochs * num_update_steps_per_epoch
         overrode_max_train_steps = True
     # Afterwards we recalculate our number of training epochs
@@ -126,8 +137,8 @@ def main(cfger):
     # We need to initialize the trackers we use, and also store our configuration.
     # The trackers initializes automatically on the main process.
     if accelerator.is_main_process:
-        tracker_config = dict(vars(cfger))
-        tracker_config.pop("validation_prompts")
+        # accelerator can not record dict obj or even list obj, so we disable it!
+        tracker_config = {}
         accelerator.init_trackers(cfger.tracker_project_name, tracker_config)
 
 #-----------------------------------------------------------------------------------------
@@ -143,15 +154,37 @@ def main(cfger):
     
     global_step, first_epoch = 0, 0
     if cfger.resume_from_checkpoint:
-        resume_mechanism()
+        if cfger.resume_from_checkpoint != "latest":
+            path = os.path.basename(cfger.resume_from_checkpoint)
+        else:
+            # Get the most recent checkpoint
+            dirs = os.listdir(cfger.output_dir)
+            dirs = [d for d in dirs if d.startswith("checkpoint")]
+            dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
+            path = dirs[-1] if len(dirs) > 0 else None
+
+        if path is None:
+            accelerator.print(
+                f"Checkpoint '{cfger.resume_from_checkpoint}' does not exist. Starting a new training run."
+            )
+            cfger.resume_from_checkpoint = None
+        else:
+            accelerator.print(f"Resuming from checkpoint {path}")
+            accelerator.load_state(os.path.join(cfger.output_dir, path))
+            global_step = int(path.split("-")[1])
+
+            resume_global_step = global_step * cfger.gradient_accumulation_steps
+            first_epoch = global_step // num_update_steps_per_epoch
+            resume_step = resume_global_step % (num_update_steps_per_epoch * cfger.gradient_accumulation_steps)
 
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(global_step, cfger.max_train_steps), disable=not accelerator.is_local_main_process)
     progress_bar.set_description("Steps")
-
+    
     for epoch in range(first_epoch, cfger.num_train_epochs):
         vqvae.train()
         train_loss = 0.0
+        loss_val = 0
         for step, batch in enumerate(train_dataloader):
             # Skip steps until we reach the resumed step
             if cfger.resume_from_checkpoint and epoch == first_epoch and step < resume_step:
@@ -160,38 +193,39 @@ def main(cfger):
                 continue
 
             with accelerator.accumulate(unet):
-                # TODO : insert training step content..
-                
-                # input 素材, 如何串接到 training step ?? 
-                # im = batch["pixel_values"].to(weight_dtype)
-                # segmap = preprocess_input(batch["segmap"], cfger.segmap_channels)
+                imgs = batch["pixel_values"].to(weight_dtype)
+                segmap = preprocess_input(batch["segmap"], cfger.segmap_channels)
+                xrec, qloss = vqvae(imgs, segmap)
+
+                # TODO : implement opt_idx mechanism..
+                if optimizer_idx == 0:
+                    # autoencode
+                    aeloss, log_dict_ae = loss_func(qloss, x, xrec, optimizer_idx, global_step,
+                                                    last_layer=vqvae.get_last_layer(), split="train")
+
+                    accelerator.log({"train/aeloss": aeloss}, step=global_step)
+                    accelerator.log({"log_dict_ae": log_dict_ae}, step=global_step)
+                    loss_val = aeloss
+
+                if optimizer_idx == 1:
+                    # discriminator
+                    discloss, log_dict_disc = loss_func(qloss, x, xrec, optimizer_idx, global_step,
+                                                    last_layer=self.get_last_layer(), split="train")
+                    
+                    accelerator.log({"train/discloss": discloss}, step=global_step)
+                    accelerator.log({"log_dict_ae": log_dict_disc}, step=global_step)
+                    loss_val = discloss
+
 
                 ## loss 計算和處理的template..
-                '''
-                if cfger.snr_gamma is None:
-                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
-                else:
-                    # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
-                    # Since we predict the noise instead of x_0, the original formulation is slightly changed.
-                    # This is discussed in Section 4.2 of the same paper.
-                    snr = compute_snr(timesteps)
-                    mse_loss_weights = (
-                        torch.stack([snr, cfger.snr_gamma * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
-                    )
-                    # We first calculate the original loss. Then we mean over the non-batch dimensions and
-                    # rebalance the sample-wise losses with their respective loss weights.
-                    # Finally, we take the mean of the rebalanced loss.
-                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
-                    loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
-                    loss = loss.mean()
-
                 # Gather the losses across all processes for logging (if we use distributed training).
+                '''
                 avg_loss = accelerator.gather(loss.repeat(cfger.train_batch_size)).mean()
                 train_loss += avg_loss.item() / cfger.gradient_accumulation_steps
                 '''
 
                 # Backpropagate
-                accelerator.backward(loss)
+                accelerator.backward(loss_val)
                 if accelerator.sync_gradients:
                     accelerator.clip_grad_norm_(vqvae.parameters(), cfger.max_grad_norm)
                 optimizer.step()
@@ -217,18 +251,26 @@ def main(cfger):
                 break
 
         if accelerator.is_main_process:
-            # TODO : insert validation_step..
-            if cfger.validation_prompts is not None and epoch % cfger.validation_epochs == 0:
-                log_validation(
-                    vae,
-                    unet,
-                    noise_scheduler,
-                    cfger,
-                    accelerator,
-                    weight_dtype,
-                    global_step,
-                )
+            if cfger.validation_step and epoch % cfger.validation_epochs == 0:
+                # disable validation currently..
+                logger.info("Running validation... with one step!!")
+                batch = next(val_dataloader)
+                imgs = batch["pixel_values"].to(weight_dtype)
+                segmap = preprocess_input(batch["segmap"], cfger.segmap_channels)
                 
+                xrec, qloss = self(imgs, segmap)
+                aeloss, log_dict_ae = loss_func(qloss, imgs, xrec, 0, global_step,
+                                                    last_layer=vqvae.get_last_layer(), split="val")
+
+                discloss, log_dict_disc = loss_func(qloss, imgs, xrec, 1, global_step,
+                                                    last_layer=vqvae.get_last_layer(), split="val")
+                rec_loss = log_dict_ae["val/rec_loss"]
+                accelerator.log({"val/rec_loss": rec_loss}, step=global_step)
+                accelerator.log({"val/aeloss": aeloss}, step=global_step)
+                accelerator.log({"val/log_dict_ae": log_dict_ae}, step=global_step)
+                accelerator.log({"val/log_dict_disc": log_dict_disc}, step=global_step)
+
+
     # Create the pipeline using the trained modules and save it.
     accelerator.wait_for_everyone()
     if accelerator.is_main_process:
@@ -250,12 +292,29 @@ def main(cfger):
 def get_cfg_str():
     return '''
     seed = 42@int
-    report_to = tensorboard@str
-    train_batch_size = 8@int
-    gradient_accumulation_steps = 4@int
-    max_train_steps = 100000@int
-    num_train_epochs = 100@int
-    resume_from_checkpoint = False@bool
+
+    # efficient tricks 
+        use_8bit_adam = False@bool
+        enable_xformers_memory_efficient_attention = False@bool
+        gradient_checkpointing = False@bool
+        allow_tf32 = False@bool
+        scale_lr = False@bool
+
+    # acceleratot setup
+        mixed_precision = fp16@str
+        gradient_accumulation_steps = 1@int
+        checkpoints_total_limit = -1@int
+        report_to = tensorboard@str
+        logging_dir = logs@str
+        output_dir = Test@str
+        tracker_project_name = VQVAE_train@str
+
+    # train-loop
+        train_batch_size = 12@int
+        max_train_steps = -1@int
+        num_train_epochs = 1000@int
+        resume_from_checkpoint = False@bool
+        validation_step = False@bool
 
     [model]  
         n_embed = 1024@int
@@ -271,31 +330,47 @@ def get_cfg_str():
             num_res_blocks = 2@int
             attn_resolutions = [16]@list
             dropout = 0.0@float
-        [model.lossconfig]
-            disc_conditional = False@bool
-            disc_in_channels = 3@int
-            disc_start = 250001@int
-            disc_weight = 0.8@float
-            codebook_weight = 1.0@float
+            segmap_channels = 34@int
+            use_SPADE = True@bool
+    
+    [optimizer]
+        lr = 4.5e-6@float
+        # adam beta1 and beta2..
+        betas = [0.9, 0.999]@list
+        weight_decay = 1e-2@float
+        eps = 1e-08@float
+
+    [loss]
+        disc_conditional = False@bool
+        disc_in_channels = 3@int
+        disc_start = 250001@int
+        disc_weight = 0.8@float
+        codebook_weight = 1.0@float
     
     [data]
         data_dir = /data1/dataset/Cityscapes@str
         image_size = 270@int
         batch_size = $train_batch_size
         num_workers = 1@int
-
-    
-
     '''
 
 
 if __name__ == "__main__":
+    import os
     from easy_configer.Configer import Configer
-    cfger = Configer()
-    cfger.cfg_from_str( get_cfg_str() )
-
+    cfger = Configer(cmd_args=True)
+    cfger.cfg_from_str(get_cfg_str())
+    
     # If passed along, set the training seed now.
     if cfger.seed != -1:
         set_seed(cfger.seed)
+
+    env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
+    if env_local_rank != -1 and env_local_rank != cfger.local_rank:
+        cfger.local_rank = env_local_rank
+
+    # Sanity checks
+    if cfger.data['data_dir'] is None:
+        raise ValueError("Need either a dataset name or a training folder.")
 
     main(cfger)

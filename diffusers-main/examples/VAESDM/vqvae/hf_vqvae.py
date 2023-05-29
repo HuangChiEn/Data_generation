@@ -7,15 +7,13 @@ import torch.nn.functional as F
 ##  model:https://github.com/CompVis/taming-transformers/blob/master/taming/models/vqgan.py
 ##  config:https://github.com/CompVis/taming-transformers/blob/master/configs/imagenet_vqgan.yaml
 ##             Josef-Huang, 2023/05/26
-import pytorch_lightning as pl
+from diffusers.configuration_utils import ConfigMixin, register_to_config
+from diffusers.models.modeling_utils import ModelMixin
 
-from main import instantiate_from_config
-
-from vq_enc_dec import Encoder, Decoder
-from template_module import VectorQuantizer2 as VectorQuantizer
-from template_module import GumbelQuantize
-from template_module import EMAVectorQuantizer
-from vqperceptual import VQLPIPSWithDiscriminator
+from vqvae.vq_enc_dec import Encoder, Decoder
+from vqvae.vq_modules import VectorQuantizer2 as VectorQuantizer
+from vqvae.vq_modules import GumbelQuantize
+from vqvae.vq_modules import EMAVectorQuantizer
 
 # Standard model arch : https://huggingface.co/CompVis/ldm-super-resolution-4x-openimages/blob/main/vqvae/config.json
 ## Since the following model is come from taming-transformer, it may not match with CompVis version..
@@ -54,7 +52,7 @@ class VQModel(ModelMixin, ConfigMixin):
                  n_embed,
                  embed_dim,
                  ddconfig,
-                 lossconfig,
+                 #lossconfig,
                  ignore_keys=[],
                  image_key="image",
                  colorize_nlabels=None,
@@ -68,7 +66,7 @@ class VQModel(ModelMixin, ConfigMixin):
         self.image_key = image_key
         self.encoder = Encoder(**ddconfig)
         self.decoder = Decoder(**ddconfig)
-        self.loss = VQLPIPSWithDiscriminator(**lossconfig)
+        #self.loss = VQLPIPSWithDiscriminator(**lossconfig)
         self.quantize = VectorQuantizer(n_embed, embed_dim, beta=0.25,
                                         remap=remap, sane_index_shape=sane_index_shape)
         self.quant_conv = torch.nn.Conv2d(ddconfig["z_channels"], embed_dim, 1)
@@ -191,15 +189,18 @@ class VQModel(ModelMixin, ConfigMixin):
         return log
 
     ## Utils methods :
+    '''
     def get_input(self, batch, k):
         x = batch[k]
         if len(x.shape) == 3:
             x = x[..., None]
         x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
         return x.float()
-
+    '''
+    
     def get_last_layer(self):
         return self.decoder.conv_out.weight
+    
 
     def to_rgb(self, x):
         assert self.image_key == "segmentation"
