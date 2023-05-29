@@ -51,10 +51,10 @@ class VQModel(ModelMixin, ConfigMixin):
 
     @register_to_config
     def __init__(self,
-                 ddconfig,
-                 lossconfig,
                  n_embed,
                  embed_dim,
+                 ddconfig,
+                 lossconfig,
                  ignore_keys=[],
                  image_key="image",
                  colorize_nlabels=None,
