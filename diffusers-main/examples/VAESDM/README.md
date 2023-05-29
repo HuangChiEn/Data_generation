@@ -1,4 +1,9 @@
 # Simplefied document of SDM-LDM  
+
+### initialize an 🤗 Accelerate environment
+
+#### `accelerate config`
+
 ### Training stage entry point : 
 #### `python SDM_LDM.py` for Latent version of SDM model.
 #### `python SDM.py` for SDM model.
@@ -7,4 +12,4 @@
 ---
 
 ### Inference stage entry point : 
-#### `python sample_image.py` with pipe API released by hugging face.
+#### `python image_generation.py` with pipe API released by hugging face.

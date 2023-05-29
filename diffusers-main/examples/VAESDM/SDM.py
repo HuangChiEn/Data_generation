@@ -519,8 +519,11 @@ def main():
     #     segmap_channels=args.segmap_channels+1
     # )
 
+    sc = 1080 // args.resolution
+    image_size = (args.resolution , 1440 // sc)
+
     unet = UNetModel(
-        image_size=args.resolution,
+        image_size=image_size,
         in_channels=3,
         model_channels=256,
         out_channels=3,
