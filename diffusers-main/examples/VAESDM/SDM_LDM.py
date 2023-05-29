@@ -76,7 +76,7 @@ def log_validation(vae, unet, noise_scheduler, args, accelerator, weight_dtype, 
     #     torch_dtype=weight_dtype,
     # )
     pipeline = SDMLDMPipeline(
-        vqvae=vae,
+        vae=vae,
         unet=unet,
         scheduler=noise_scheduler,
         torch_dtype=weight_dtype,
@@ -538,8 +538,12 @@ def main():
     #     segmap_channels=args.segmap_channels+1
     # )
 
+    sc = 1080 // args.resolution
+    laten_size = (args.resolution // 4, 1440 // (sc*4))
+
+
     unet = UNetModel(
-        image_size=args.resolution / 4,
+        image_size= laten_size,
         in_channels=vae.config.latent_channels,
         model_channels=128,
         out_channels=vae.config.latent_channels,
@@ -929,7 +933,7 @@ def main():
             ema_unet.copy_to(unet.parameters())
 
         pipeline = SDMLDMPipeline(
-            vqvae=vae,
+            vae=vae,
             unet=unet,
             scheduler=noise_scheduler,
             torch_dtype=weight_dtype,

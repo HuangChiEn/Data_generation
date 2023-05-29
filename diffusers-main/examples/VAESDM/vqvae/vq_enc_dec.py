@@ -5,6 +5,37 @@ import math
 import torch
 import torch.nn as nn
 import numpy as np
+import torch.nn.functional as F
+
+
+class SPADEGroupNorm(nn.Module):
+    def __init__(self, norm_nc, label_nc, eps = 1e-5):
+        super().__init__()
+
+        self.norm = nn.GroupNorm(32, norm_nc, affine=False) # 32/16
+
+        self.eps = eps
+        nhidden = 128
+        self.mlp_shared = nn.Sequential(
+            nn.Conv2d(label_nc, nhidden, kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+        self.mlp_gamma = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
+        self.mlp_beta = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
+
+    def forward(self, x, segmap):
+        # Part 1. generate parameter-free normalized activations
+        x = self.norm(x)
+
+        # Part 2. produce scaling and bias conditioned on semantic map
+        segmap = F.interpolate(segmap, size=x.size()[2:], mode='nearest')
+        actv = self.mlp_shared(segmap)
+        gamma = self.mlp_gamma(actv)
+        beta = self.mlp_beta(actv)
+
+        # apply scale and bias
+        return x * (1 + gamma) + beta
+
 
 def nonlinearity(x):
     # swish
@@ -104,6 +135,63 @@ class ResnetBlock(nn.Module):
             h = h + self.temb_proj(nonlinearity(temb))[:,:,None,None]
 
         h = self.norm2(h)
+        h = nonlinearity(h)
+        h = self.dropout(h)
+        h = self.conv2(h)
+
+        if self.in_channels != self.out_channels:
+            if self.use_conv_shortcut:
+                x = self.conv_shortcut(x)
+            else:
+                x = self.nin_shortcut(x)
+
+        return x+h
+
+class SPADEResnetBlock(nn.Module):
+    def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False,
+                 dropout, temb_channels=34):
+        super().__init__()
+        self.in_channels = in_channels
+        out_channels = in_channels if out_channels is None else out_channels
+        self.out_channels = out_channels
+        self.use_conv_shortcut = conv_shortcut
+
+        self.norm1 = SPADEGroupNorm(in_channels, temb_channels)
+        self.conv1 = torch.nn.Conv2d(in_channels,
+                                     out_channels,
+                                     kernel_size=3,
+                                     stride=1,
+                                     padding=1)
+
+        self.norm2 = SPADEGroupNorm(out_channels, temb_channels)
+        self.dropout = torch.nn.Dropout(dropout)
+        self.conv2 = torch.nn.Conv2d(out_channels,
+                                     out_channels,
+                                     kernel_size=3,
+                                     stride=1,
+                                     padding=1)
+        if self.in_channels != self.out_channels:
+            if self.use_conv_shortcut:
+                self.conv_shortcut = torch.nn.Conv2d(in_channels,
+                                                     out_channels,
+                                                     kernel_size=3,
+                                                     stride=1,
+                                                     padding=1)
+            else:
+                self.nin_shortcut = torch.nn.Conv2d(in_channels,
+                                                    out_channels,
+                                                    kernel_size=1,
+                                                    stride=1,
+                                                    padding=0)
+
+    def forward(self, x, segmap):
+        h = x
+        h = self.norm1(h, segmap)
+        h = nonlinearity(h)
+        h = self.conv1(h)
+
+
+        h = self.norm2(h, segmap)
         h = nonlinearity(h)
         h = self.dropout(h)
         h = self.conv2(h)
@@ -271,15 +359,16 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, *, ch, out_ch, ch_mult=(1,2,4,8), num_res_blocks,
                  attn_resolutions, dropout=0.0, resamp_with_conv=True, in_channels,
-                 resolution, z_channels, give_pre_end=False, **ignorekwargs):
+                 resolution, z_channels, give_pre_end=False, segmap_channels=34, use_SPADE=True, **ignorekwargs):
         super().__init__()
         self.ch = ch
-        self.temb_ch = 0
+        self.segmap_channels = segmap_channels
         self.num_resolutions = len(ch_mult)
         self.num_res_blocks = num_res_blocks
         self.resolution = resolution
         self.in_channels = in_channels
         self.give_pre_end = give_pre_end
+        self.use_SPADE = use_SPADE
 
         # compute in_ch_mult, block_in and curr_res at lowest res
         in_ch_mult = (1,)+tuple(ch_mult)
@@ -289,23 +378,27 @@ class Decoder(nn.Module):
         print("Working with z of shape {} = {} dimensions.".format(
             self.z_shape, np.prod(self.z_shape)))
 
+        if self.use_SPADE:
+            rsblock = SPADEResnetBlock
+        else:
+            rsblock = ResnetBlock
+
         # z to block_in
         self.conv_in = torch.nn.Conv2d(z_channels,
                                        block_in,
                                        kernel_size=3,
                                        stride=1,
                                        padding=1)
-
         # middle
         self.mid = nn.Module()
-        self.mid.block_1 = ResnetBlock(in_channels=block_in,
+        self.mid.block_1 = rsblock(in_channels=block_in,
                                        out_channels=block_in,
-                                       temb_channels=self.temb_ch,
+                                       temb_channels=self.segmap_channels,
                                        dropout=dropout)
         self.mid.attn_1 = AttnBlock(block_in)
-        self.mid.block_2 = ResnetBlock(in_channels=block_in,
+        self.mid.block_2 = rsblock(in_channels=block_in,
                                        out_channels=block_in,
-                                       temb_channels=self.temb_ch,
+                                       temb_channels=self.segmap_channels,
                                        dropout=dropout)
 
         # upsampling
@@ -315,9 +408,9 @@ class Decoder(nn.Module):
             attn = nn.ModuleList()
             block_out = ch*ch_mult[i_level]
             for i_block in range(self.num_res_blocks+1):
-                block.append(ResnetBlock(in_channels=block_in,
+                block.append(rsblock(in_channels=block_in,
                                          out_channels=block_out,
-                                         temb_channels=self.temb_ch,
+                                         temb_channels=self.segmap_channels,
                                          dropout=dropout))
                 block_in = block_out
                 if curr_res in attn_resolutions:
@@ -338,12 +431,14 @@ class Decoder(nn.Module):
                                         stride=1,
                                         padding=1)
 
-    def forward(self, z):
+    def forward(self, z, segmap=None):
+        if self.use_SPADE:
+            assert segmap is not None, "using the SPADE, but segmap is None."
         #assert z.shape[1:] == self.z_shape[1:]
         self.last_z_shape = z.shape
 
         # timestep embedding
-        temb = None
+        temb = segmap
 
         # z to block_in
         h = self.conv_in(z)

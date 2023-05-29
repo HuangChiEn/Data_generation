@@ -104,14 +104,14 @@ class VQModel(ModelMixin, ConfigMixin):
         quant, emb_loss, info = self.quantize(h)
         return quant, emb_loss, info
 
-    def decode(self, quant):
+    def decode(self, quant, segmap):
         quant = self.post_quant_conv(quant)
-        dec = self.decoder(quant)
+        dec = self.decoder(quant, segmap)
         return dec
 
-    def forward(self, input):
+    def forward(self, input, segmap=None):
         quant, diff, _ = self.encode(input)
-        dec = self.decode(quant)
+        dec = self.decode(quant, segmap)
         return dec, diff
 
     # I guess this will be called during inference..(haven't used in here!)

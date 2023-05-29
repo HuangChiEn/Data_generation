@@ -248,6 +248,7 @@ class SDMPipeline(DiffusionPipeline):
             [`~pipelines.ImagePipelineOutput`] or `tuple`: [`~pipelines.model.ImagePipelineOutput`] if `return_dict` is
             True, otherwise a `tuple. When returning a tuple, the first element is a list with the generated images.
         """
+        self.unet.config.sample_size = (270,360)
         if not isinstance(self.unet.config.sample_size, tuple):
             self.unet.config.sample_size = (self.unet.config.sample_size, self.unet.config.sample_size)
 

@@ -93,11 +93,11 @@ def get_pipeline(pipe_type, pipe_path=None, unet=None, vae=None):
 def get_cfg_str():
     return '''
     seed = 42@int
-    num_inference_steps = 20@int
-    scheduler_type = UniPC@str
+    num_inference_steps = 1000@int
+    scheduler_type = DDPM@str
 
     save_dir = Gen_results@str
-    num_save_im = 35@int
+    num_save_im = 8@int
     
     [dataloader]
         data_dir = /data1/dataset/Cityscapes@str
@@ -106,12 +106,12 @@ def get_cfg_str():
         num_workers = 1@int
 
     [diff_mod]
-        unet_path = /data/harry/Data_generation/diffusers-main/examples/VAESDM/testFinalVQLDM-sdm540-model@str
-        numk_ckpt = 62@int
-        vae_type = VQ@str
+        unet_path = /data/harry/Data_generation/diffusers-main/examples/VAESDM/testFinalattnsdm-model@str
+        numk_ckpt = 40@int
+        vae_type = @str
     
     [pipe]
-        pipe_type = SDMLDMPipeline@str
+        pipe_type = SDMPipeline@str
         pipe_path = @str
     '''
 
@@ -125,7 +125,7 @@ if __name__ == "__main__":
     unet, vae = get_diffusion_modules(**cfger.diff_mod)
 
     pipe = get_pipeline(**cfger.pipe, unet=unet, vae=vae)
-    #pipe = scheduler_setup(pipe, cfger.scheduler_type)
+    pipe = scheduler_setup(pipe, cfger.scheduler_type)
 
     pipe = pipe.to("cuda")
 

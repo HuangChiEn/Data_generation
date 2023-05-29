@@ -163,7 +163,7 @@ class Cityscape_cache(Dataset):
         vae_cache = torch.load(self.cache_path[idx])
         # customized callback to deal with cache file
         if self.cache_file_callbk:
-            return cache_file_callbk(vae_cache)
+            return self.cache_file_callbk(vae_cache)
         
         # default procedure to load the cache file for VAE & VQVAE.. 
         if isinstance(vae_cache['x'], dict):
