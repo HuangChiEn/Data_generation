@@ -41,6 +41,34 @@ def get_dataloader(data_dir, image_size):
     )
     return all_ds['train'], all_ds['val']
 
+def preprocess_input(data, num_classes):
+    # utils to get the edge of image
+    def get_edges(t):
+        # zero tensor, prepare to fill with edge (1) and bg (0)
+        edge = torch.ByteTensor(t.size()).zero_().to(t.device)
+        edge[:, :, :, 1:] = edge[:, :, :, 1:] | (t[:, :, :, 1:] != t[:, :, :, :-1])
+        edge[:, :, :, :-1] = edge[:, :, :, :-1] | (t[:, :, :, 1:] != t[:, :, :, :-1])
+        edge[:, :, 1:, :] = edge[:, :, 1:, :] | (t[:, :, 1:, :] != t[:, :, :-1, :])
+        edge[:, :, :-1, :] = edge[:, :, :-1, :] | (t[:, :, 1:, :] != t[:, :, :-1, :])
+        return edge.float()
+
+    # move to GPU and change data types
+    data['label'] = data['label'].long()
+
+    # create one-hot label map
+    label_map = data['label']
+    bs, _, h, w = label_map.size()
+    input_label = torch.FloatTensor(bs, num_classes, h, w).zero_().to(data['label'].device)
+    input_semantics = input_label.scatter_(1, label_map, 1.0)
+
+    # concatenate instance map if it exists
+    if 'instance' in data:
+        inst_map = data['instance']
+        instance_edge_map = get_edges(inst_map)
+        input_semantics = torch.cat((input_semantics, instance_edge_map), dim=1)
+
+    return input_semantics
+
 
 ## TODO : enable logging mechanism
 def main(cfger):
@@ -57,7 +85,7 @@ def main(cfger):
 
     ## Setup model
     vqvae = VQModel(**cfger.model)
-    loss_func = VQLPIPSWithDiscriminator(**cfger.loss)
+    disc_mod = VQLPIPSWithDiscriminator(**cfger.loss)
 
     # accelerator plugins ~ enjoy the community
     if cfger.enable_xformers_memory_efficient_attention:
@@ -88,8 +116,13 @@ def main(cfger):
     else:
         optimizer_cls = torch.optim.AdamW
 
-    optimizer = optimizer_cls(
+    vqvae_optim = optimizer_cls(
         vqvae.parameters(),
+        **cfger.optimizer
+    )
+    # get the trainable params from disc_mod
+    disc_optim = optimizer_cls(
+        disc_mod.discriminator.parameters(),
         **cfger.optimizer
     )
 
@@ -112,8 +145,8 @@ def main(cfger):
     )
     
     # Prepare everything with our `accelerator`.
-    vqvae, optimizer, train_dataloader = accelerator.prepare(
-        vqvae, optimizer, train_dataloader
+    vqvae, vqvae_optim, disc_mod, disc_optim, train_dataloader = accelerator.prepare(
+        vqvae, vqvae_optim, disc_mod, disc_optim, train_dataloader
     )
 
     # For mixed precision training we cast the text_encoder and vae weights to half-precision
@@ -184,7 +217,6 @@ def main(cfger):
     for epoch in range(first_epoch, cfger.num_train_epochs):
         vqvae.train()
         train_loss = 0.0
-        loss_val = 0
         for step, batch in enumerate(train_dataloader):
             # Skip steps until we reach the resumed step
             if cfger.resume_from_checkpoint and epoch == first_epoch and step < resume_step:
@@ -192,45 +224,38 @@ def main(cfger):
                     progress_bar.update(1)
                 continue
 
-            with accelerator.accumulate(unet):
+            with accelerator.accumulate(vqvae):
                 imgs = batch["pixel_values"].to(weight_dtype)
                 segmap = preprocess_input(batch["segmap"], cfger.segmap_channels)
                 xrec, qloss = vqvae(imgs, segmap)
 
-                # TODO : implement opt_idx mechanism..
-                if optimizer_idx == 0:
-                    # autoencode
-                    aeloss, log_dict_ae = loss_func(qloss, x, xrec, optimizer_idx, global_step,
-                                                    last_layer=vqvae.get_last_layer(), split="train")
+                # Train VQ-VAE, opt_idx == 0
+                vqvae.zero_grad()                   
+                aeloss, log_dict_ae = discr_mod(qloss, imgs, xrec, 0, global_step,
+                                                last_layer=vqvae.get_last_layer(), split="train")
 
-                    accelerator.log({"train/aeloss": aeloss}, step=global_step)
-                    accelerator.log({"log_dict_ae": log_dict_ae}, step=global_step)
-                    loss_val = aeloss
-
-                if optimizer_idx == 1:
-                    # discriminator
-                    discloss, log_dict_disc = loss_func(qloss, x, xrec, optimizer_idx, global_step,
-                                                    last_layer=self.get_last_layer(), split="train")
-                    
-                    accelerator.log({"train/discloss": discloss}, step=global_step)
-                    accelerator.log({"log_dict_ae": log_dict_disc}, step=global_step)
-                    loss_val = discloss
-
+                accelerator.log({"train/aeloss": aeloss}, step=global_step)
+                accelerator.log({"log_dict_ae": log_dict_ae}, step=global_step)
+                accelerator.backward(aeloss)
+                if accelerator.sync_gradients:
+                    accelerator.clip_grad_norm_(vqvae.parameters(), cfger.max_grad_norm)
+                vqvae_optim.step()
+                
+                # Train discriminator, opt_idx == 1
+                discloss, log_dict_disc = discr_mod(qloss, imgs, xrec.detach(), 1, global_step,
+                                                last_layer=self.get_last_layer(), split="train")
+                
+                accelerator.log({"train/discloss": discloss}, step=global_step)
+                accelerator.log({"log_dict_ae": log_dict_disc}, step=global_step)
+                accelerator.backward(discloss)
+                if accelerator.sync_gradients:
+                    accelerator.clip_grad_norm_(discr_mod.discriminator.parameters(), cfger.max_grad_norm)
+                disc_optim.step()
 
                 ## loss 計算和處理的template..
                 # Gather the losses across all processes for logging (if we use distributed training).
-                '''
-                avg_loss = accelerator.gather(loss.repeat(cfger.train_batch_size)).mean()
+                avg_loss = accelerator.gather(aeloss.repeat(cfger.train_batch_size)).mean()
                 train_loss += avg_loss.item() / cfger.gradient_accumulation_steps
-                '''
-
-                # Backpropagate
-                accelerator.backward(loss_val)
-                if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(vqvae.parameters(), cfger.max_grad_norm)
-                optimizer.step()
-                lr_scheduler.step()
-                optimizer.zero_grad()
 
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
@@ -244,7 +269,7 @@ def main(cfger):
                         save_path = os.path.join(cfger.output_dir, f"checkpoint-{global_step}")
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
-            logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
+            logs = {"ae_step_loss": aeloss.detach().item()}   # , "lr": lr_scheduler.get_last_lr()[0]
             progress_bar.set_postfix(**logs)
 
             if global_step >= cfger.max_train_steps:
@@ -257,12 +282,12 @@ def main(cfger):
                 batch = next(val_dataloader)
                 imgs = batch["pixel_values"].to(weight_dtype)
                 segmap = preprocess_input(batch["segmap"], cfger.segmap_channels)
-                
-                xrec, qloss = self(imgs, segmap)
-                aeloss, log_dict_ae = loss_func(qloss, imgs, xrec, 0, global_step,
+                breakpoint()
+                xrec, qloss = vqvae(imgs, segmap)
+                aeloss, log_dict_ae = discr_mod(qloss, imgs, xrec, 0, global_step,
                                                     last_layer=vqvae.get_last_layer(), split="val")
 
-                discloss, log_dict_disc = loss_func(qloss, imgs, xrec, 1, global_step,
+                discloss, log_dict_disc = discr_mod(qloss, imgs, xrec, 1, global_step,
                                                     last_layer=vqvae.get_last_layer(), split="val")
                 rec_loss = log_dict_ae["val/rec_loss"]
                 accelerator.log({"val/rec_loss": rec_loss}, step=global_step)
@@ -315,6 +340,7 @@ def get_cfg_str():
         num_train_epochs = 1000@int
         resume_from_checkpoint = False@bool
         validation_step = False@bool
+        segmap_channels = 34@int
 
     [model]  
         n_embed = 1024@int
@@ -330,7 +356,7 @@ def get_cfg_str():
             num_res_blocks = 2@int
             attn_resolutions = [16]@list
             dropout = 0.0@float
-            segmap_channels = 34@int
+            segmap_channels = $segmap_channels
             use_SPADE = True@bool
     
     [optimizer]
