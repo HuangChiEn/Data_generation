@@ -2387,7 +2387,6 @@ class SDMUpDecoderBlock2D(nn.Module):
 
         return hidden_states
 
-
 class AttnUpDecoderBlock2D(nn.Module):
     def __init__(
         self,

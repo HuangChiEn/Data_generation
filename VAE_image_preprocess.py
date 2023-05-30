@@ -1,4 +1,4 @@
-from diffusers import AutoencoderKL, VQModel
+from vqvae.hf_vqvqe import VQModel
 import torch
 from guided_diffusion.image_datasets import load_data
 import os
@@ -58,29 +58,12 @@ def main(use_fp16=True,data_dir='/data1/dataset/Cityscapes',batch_size=8,image_s
         batch_size=batch_size,
         image_size=image_size,
         class_cond=True,
-        is_train=True,
+        is_train=False,
         use_vae=True,
         mask_emb=mask_emb
     )
 
-    catch_patch = "/data/harry/Cityscape_catch/VQVAE_540_resize/train/"
-    if not os.path.isdir(catch_patch):
-        os.makedirs(catch_patch)
-
-    initial_count = 0
-    for path in os.listdir(catch_patch):
-        if os.path.isfile(os.path.join(catch_patch, path)):
-            initial_count += 1
-        else:
-            catch_patch_ = os.path.join(catch_patch, path)
-            for path_ in os.listdir(catch_patch_):
-                if os.path.isfile(os.path.join(catch_patch_, path_)):
-                    initial_count += 1
-    print(initial_count)
-
     for images, cond in tqdm(data):
-        if initial_count >= 2975:
-            break
         images = images.cuda()
         latents = vae.encode(images.type(torch.float16)).latents # .to(torch.float16)
         latents = latents * vae.config.scaling_factor
@@ -91,54 +74,10 @@ def main(use_fp16=True,data_dir='/data1/dataset/Cityscapes',batch_size=8,image_s
         # sample = mean_ + std_ * sample
 
 
-        # sample = vae.decode(sample.type(torch.float16)).sample
-        # tv.utils.save_image((images[0] + 1) / 2.0, "input_img.png")
-        # tv.utils.save_image((sample[0] + 1) / 2.0, "output_img.png")
-        # break
-
-        if mask_emb == "vae_encode":
-            cond = preprocess_input(cond)
-            cond['y'] = cond['y'].cuda()
-            label_mean = []
-            label_std = []
-            for i in range(cond['y'].shape[1]):
-                latent_dist = vae.encode(cond['y'][:, i, :, :].unsqueeze(1).repeat(1,3,1,1).type(torch.float16)).latents
-                label_mean.append(latent_dist.mean.cpu())
-                label_std.append(latent_dist.std.cpu())
-
-        # for i, (m, s, name) in enumerate(zip(mean_, std_, cond['path'])):
-        #     path = catch_patch + name.split('/')[-2] + "/" + name.split('/')[-1].replace(".png", ".pt")
-        #     if os.path.isfile(path):
-        #         continue
-        #     else:
-        #         print(path)
-        #         initial_count += 1
-        #         m = m.cpu()
-        #         s = s.cpu()
-        #
-        #
-        #         #data_dic = {"x": {"mean": m, "std": s}, "label": {k: cond[k][i] for k in cond.keys() }}
-        #         data_dic = {"x": {"mean": m, "std": s}, "label": {"mean": [l_mean[i] for l_mean in label_mean], "std": [l_std[i] for l_std in label_std]}}
-        #
-        #         if not os.path.isdir(catch_patch + name.split('/')[-2]):
-        #             os.makedirs(catch_patch + name.split('/')[-2])
-        #         torch.save(data_dic,path)
-
-        for i, (l, name) in enumerate(zip(latents, cond['path'])):
-            path = catch_patch + name.split('/')[-2] + "/" + name.split('/')[-1].replace(".png", ".pt")
-            if os.path.isfile(path):
-                continue
-            else:
-                print(path)
-                initial_count += 1
-                l = l.cpu()
-
-                #data_dic = {"x": {"mean": m, "std": s}, "label": {k: cond[k][i] for k in cond.keys() }}
-                data_dic = {"x": l, "label": {k: cond[k][i] for k in cond.keys()}}
-
-                if not os.path.isdir(catch_patch + name.split('/')[-2]):
-                    os.makedirs(catch_patch + name.split('/')[-2])
-                torch.save(data_dic,path)
+        sample = vae.decode(latents.type(torch.float16)).sample
+        tv.utils.save_image((images[0] + 1) / 2.0, "input_img.png")
+        tv.utils.save_image((sample[0] + 1) / 2.0, "output_img.png")
+        break
 
 if __name__ == "__main__":
     main()
