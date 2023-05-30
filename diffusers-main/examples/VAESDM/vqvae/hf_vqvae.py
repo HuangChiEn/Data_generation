@@ -1,6 +1,7 @@
 # the following code snippet follow the VQ-GAN!
 #  which similar with the LDM description..
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 ## The following code snippet of VQ-VAE only support inference, 
 ##  we attempt to follow the encode, decode as well as forward function in following link:
@@ -9,10 +10,12 @@ import torch.nn.functional as F
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 
-from vqvae.vq_enc_dec import Encoder, Decoder
+from vqvae.hf_enc_dec import Encoder, Decoder
 from vqvae.vq_modules import VectorQuantizer2 as VectorQuantizer
 from vqvae.vq_modules import GumbelQuantize
 from vqvae.vq_modules import EMAVectorQuantizer
+
+from typing import Tuple, Optional
 
 # Standard model arch : https://huggingface.co/CompVis/ldm-super-resolution-4x-openimages/blob/main/vqvae/config.json
 ## Since the following model is come from taming-transformer, we make it match with CompVis version..

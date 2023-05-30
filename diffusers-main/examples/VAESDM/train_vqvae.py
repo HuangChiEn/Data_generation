@@ -344,7 +344,7 @@ def get_cfg_str():
 
     [model]  
         act_fn = silu@str
-        block_out_channels = [128, 256, 512]@lists    # modified!
+        block_out_channels = [128, 256, 512]@list    # modified!
         in_channels = 3@int
         latent_channels = 3@int
         layers_per_block = 2@int      # modified!
@@ -352,7 +352,6 @@ def get_cfg_str():
         num_vq_embeddings = 8192@int  # modified!
         out_channels = 3@int
         sample_size = 256@int         # modified!
-        vq_embed_dim = None@str
         segmap_channels = 35@int  # because we add 34 + 1 (edge info)
         use_SPADE = True@bool
     
@@ -372,7 +371,7 @@ def get_cfg_str():
     
     [data]
         data_dir = /data1/dataset/Cityscapes@str
-        image_size = 270@int
+        image_size = 540@int
         batch_size = $train_batch_size
         num_workers = 1@int
     '''

@@ -1,8 +1,9 @@
+from functools import partial
 import torch
 import torch.nn as nn
 
-from diffusers.models.unet_2d_blocks import UNetMidBlock2D, get_down_block, get_up_block
-from model.unet_2d_blocks import UNetSDMMidBlock2D, UNetMidBlock2D
+from diffusers.models.unet_2d_blocks import UNetMidBlock2D, get_down_block
+from model.unet_2d_blocks import UNetSDMMidBlock2D, UNetMidBlock2D, get_up_block
 
 
 class Encoder(nn.Module):
@@ -127,8 +128,10 @@ class Decoder(nn.Module):
         self.segmap_channels = segmap_channels
         if self.use_SPADE:
             unet_mid_blk = partial(UNetSDMMidBlock2D, segmap_channels=self.segmap_channels)
+            up_blk_getter = partial(get_up_block, up_block_type='SDMUpDecoderBlock2D', segmap_channels=self.segmap_channels)
         else:
             unet_mid_blk = UNetMidBlock2D
+            up_blk_getter = partial(get_up_block, up_block_type=up_block_types)
 
         self.layers_per_block = layers_per_block
         
@@ -165,8 +168,7 @@ class Decoder(nn.Module):
 
             is_final_block = i == len(block_out_channels) - 1
 
-            up_block = get_up_block(
-                up_block_type,
+            up_block = up_blk_getter(
                 num_layers=self.layers_per_block + 1,
                 in_channels=prev_output_channel,
                 out_channels=output_channel,
