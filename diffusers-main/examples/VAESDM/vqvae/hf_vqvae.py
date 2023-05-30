@@ -3,10 +3,9 @@
 import torch
 import torch.nn.functional as F
 ## The following code snippet of VQ-VAE only support inference, 
-##  we attempt to modify it into trainable module by follow the following links:
+##  we attempt to follow the encode, decode as well as forward function in following link:
 ##  model:https://github.com/CompVis/taming-transformers/blob/master/taming/models/vqgan.py
-##  config:https://github.com/CompVis/taming-transformers/blob/master/configs/imagenet_vqgan.yaml
-##             Josef-Huang, 2023/05/26
+##             Josef-Huang, 2023/05/30
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.models.modeling_utils import ModelMixin
 
@@ -16,7 +15,7 @@ from vqvae.vq_modules import GumbelQuantize
 from vqvae.vq_modules import EMAVectorQuantizer
 
 # Standard model arch : https://huggingface.co/CompVis/ldm-super-resolution-4x-openimages/blob/main/vqvae/config.json
-## Since the following model is come from taming-transformer, it may not match with CompVis version..
+## Since the following model is come from taming-transformer, we make it match with CompVis version..
 class VQModel(ModelMixin, ConfigMixin):
     r"""VQ-VAE model from the paper Neural Discrete Representation Learning by Aaron van den Oord, Oriol Vinyals and Koray
     Kavukcuoglu.
@@ -46,54 +45,58 @@ class VQModel(ModelMixin, ConfigMixin):
             / scaling_factor * z`. For more details, refer to sections 4.3.2 and D.1 of the [High-Resolution Image
             Synthesis with Latent Diffusion Models](https://arxiv.org/abs/2112.10752) paper.
     """
-
     @register_to_config
-    def __init__(self,
-                 n_embed,
-                 embed_dim,
-                 ddconfig,
-                 #lossconfig,
-                 ignore_keys=[],
-                 image_key="image",
-                 colorize_nlabels=None,
-                 monitor=None,
-                 remap=None,
-                 sane_index_shape=False,  # tell vector quantizer to return indices as bhw
-                 ckpt_path=None
-                 ):
+    def __init__(
+        self,
+        in_channels: int = 3,
+        out_channels: int = 3,
+        down_block_types: Tuple[str] = ("DownEncoderBlock2D",),
+        up_block_types: Tuple[str] = ("UpDecoderBlock2D",),
+        block_out_channels: Tuple[int] = (64,),
+        layers_per_block: int = 1,
+        act_fn: str = "silu",
+        latent_channels: int = 3,
+        sample_size: int = 32,
+        num_vq_embeddings: int = 256,
+        norm_num_groups: int = 32,
+        vq_embed_dim: Optional[int] = None,
+        scaling_factor: float = 0.18215,
+        segmap_channels: int = 35,
+        use_SPADE: bool = True
+    ):
         super().__init__()
+        # pass init params to Encoder
+        self.encoder = Encoder(
+            in_channels=in_channels,
+            out_channels=latent_channels,
+            down_block_types=down_block_types,
+            block_out_channels=block_out_channels,
+            layers_per_block=layers_per_block,
+            act_fn=act_fn,
+            norm_num_groups=norm_num_groups,
+            double_z=False,
+        )
 
-        self.image_key = image_key
-        self.encoder = Encoder(**ddconfig)
-        self.decoder = Decoder(**ddconfig)
-        #self.loss = VQLPIPSWithDiscriminator(**lossconfig)
-        self.quantize = VectorQuantizer(n_embed, embed_dim, beta=0.25,
-                                        remap=remap, sane_index_shape=sane_index_shape)
-        self.quant_conv = torch.nn.Conv2d(ddconfig["z_channels"], embed_dim, 1)
-        self.post_quant_conv = torch.nn.Conv2d(embed_dim, ddconfig["z_channels"], 1)
-        self.image_key = image_key
-        if colorize_nlabels is not None:
-            assert type(colorize_nlabels)==int
-            self.register_buffer("colorize", torch.randn(3, colorize_nlabels, 1, 1))
-        if monitor is not None:
-            self.monitor = monitor
+        vq_embed_dim = vq_embed_dim if vq_embed_dim is not None else latent_channels
 
-        ## Declare it private, this method may no longer need it 
-        if ckpt_path is not None:
-            self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
-            
-    ## Declare it private, this method may no longer need it 
-    def __init_from_ckpt(self, path, ignore_keys=list()):
-        sd = torch.load(path, map_location="cpu")["state_dict"]
-        keys = list(sd.keys())
-        for k in keys:
-            for ik in ignore_keys:
-                if k.startswith(ik):
-                    print("Deleting key {} from state_dict.".format(k))
-                    del sd[k]
-        self.load_state_dict(sd, strict=False)
-        print(f"Restored from {path}")
+        self.quant_conv = nn.Conv2d(latent_channels, vq_embed_dim, 1)
+        self.quantize = VectorQuantizer(num_vq_embeddings, vq_embed_dim, beta=0.25, remap=None, sane_index_shape=False)
+        self.post_quant_conv = nn.Conv2d(vq_embed_dim, latent_channels, 1)
 
+        # pass init params to Decoder
+        self.decoder = Decoder(
+            in_channels=latent_channels,
+            out_channels=out_channels,
+            up_block_types=up_block_types,
+            block_out_channels=block_out_channels,
+            layers_per_block=layers_per_block,
+            act_fn=act_fn,
+            norm_num_groups=norm_num_groups,
+            # extend decoder spatial capability..
+            segmap_channels=segmap_channels,
+            use_SPADE=use_SPADE
+        )
+        
 #------------------------------------------------------------------------------
 ## Main part..
     def encode(self, x):
@@ -118,9 +121,13 @@ class VQModel(ModelMixin, ConfigMixin):
         dec = self.decode(quant_b)
         return dec
 
-#-------------------------------------------------------------------------
+    # util method :
+    def get_last_layer(self):
+        return self.decoder.conv_out.weight
 
-    ## TODO : Move it outside to trainer..train_loop
+#-------------------------------------------------------------------------
+    ## template : training_step, validation_step given from taming
+    '''
     def training_step(self, batch, batch_idx, optimizer_idx):
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
@@ -187,29 +194,8 @@ class VQModel(ModelMixin, ConfigMixin):
         log["inputs"] = x
         log["reconstructions"] = xrec
         return log
-
-    ## Utils methods :
-    '''
-    def get_input(self, batch, k):
-        x = batch[k]
-        if len(x.shape) == 3:
-            x = x[..., None]
-        x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
-        return x.float()
     '''
     
-    def get_last_layer(self):
-        return self.decoder.conv_out.weight
-    
-
-    def to_rgb(self, x):
-        assert self.image_key == "segmentation"
-        if not hasattr(self, "colorize"):
-            self.register_buffer("colorize", torch.randn(3, x.shape[1], 1, 1).to(x))
-        x = F.conv2d(x, weight=self.colorize)
-        x = 2.*(x-x.min())/(x.max()-x.min()) - 1.
-        return x
-
 
 if __name__ == "__main__":
     ...

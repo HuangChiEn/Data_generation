@@ -67,7 +67,7 @@ def preprocess_input(data, num_classes):
         instance_edge_map = get_edges(inst_map)
         input_semantics = torch.cat((input_semantics, instance_edge_map), dim=1)
 
-    return input_semantics
+    return input_semantics.to(memory_format=torch.contiguous_format)
 
 
 ## TODO : enable logging mechanism
@@ -225,13 +225,13 @@ def main(cfger):
                 continue
 
             with accelerator.accumulate(vqvae):
-                imgs = batch["pixel_values"].to(weight_dtype)
+                imgs = batch["pixel_values"].to(dtype=weight_dtype, memory_format=torch.contiguous_format)
                 segmap = preprocess_input(batch["segmap"], cfger.segmap_channels)
                 xrec, qloss = vqvae(imgs, segmap)
-
+                
                 # Train VQ-VAE, opt_idx == 0
                 vqvae.zero_grad()                   
-                aeloss, log_dict_ae = discr_mod(qloss, imgs, xrec, 0, global_step,
+                aeloss, log_dict_ae = disc_mod(qloss, imgs, xrec, 0, global_step,
                                                 last_layer=vqvae.get_last_layer(), split="train")
 
                 accelerator.log({"train/aeloss": aeloss}, step=global_step)
@@ -242,14 +242,14 @@ def main(cfger):
                 vqvae_optim.step()
                 
                 # Train discriminator, opt_idx == 1
-                discloss, log_dict_disc = discr_mod(qloss, imgs, xrec.detach(), 1, global_step,
+                discloss, log_dict_disc = disc_mod(qloss, imgs, xrec.detach(), 1, global_step,
                                                 last_layer=self.get_last_layer(), split="train")
                 
                 accelerator.log({"train/discloss": discloss}, step=global_step)
                 accelerator.log({"log_dict_ae": log_dict_disc}, step=global_step)
                 accelerator.backward(discloss)
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(discr_mod.discriminator.parameters(), cfger.max_grad_norm)
+                    accelerator.clip_grad_norm_(disc_mod.discriminator.parameters(), cfger.max_grad_norm)
                 disc_optim.step()
 
                 ## loss 計算和處理的template..
@@ -282,12 +282,12 @@ def main(cfger):
                 batch = next(val_dataloader)
                 imgs = batch["pixel_values"].to(weight_dtype)
                 segmap = preprocess_input(batch["segmap"], cfger.segmap_channels)
-                breakpoint()
+                
                 xrec, qloss = vqvae(imgs, segmap)
-                aeloss, log_dict_ae = discr_mod(qloss, imgs, xrec, 0, global_step,
+                aeloss, log_dict_ae = disc_mod(qloss, imgs, xrec, 0, global_step,
                                                     last_layer=vqvae.get_last_layer(), split="val")
 
-                discloss, log_dict_disc = discr_mod(qloss, imgs, xrec, 1, global_step,
+                discloss, log_dict_disc = disc_mod(qloss, imgs, xrec, 1, global_step,
                                                     last_layer=vqvae.get_last_layer(), split="val")
                 rec_loss = log_dict_ae["val/rec_loss"]
                 accelerator.log({"val/rec_loss": rec_loss}, step=global_step)
@@ -343,21 +343,18 @@ def get_cfg_str():
         segmap_channels = 34@int
 
     [model]  
-        n_embed = 1024@int
-        embed_dim = 256@int
-        [model.ddconfig]
-            double_z = False@bool
-            z_channels = 256@int
-            resolution = 256@int
-            in_channels = 3@int
-            out_ch = 3@int
-            ch = 128@int
-            ch_mult = [1, 1, 2, 2, 4]@list  # num_down = len(ch_mult)-1
-            num_res_blocks = 2@int
-            attn_resolutions = [16]@list
-            dropout = 0.0@float
-            segmap_channels = $segmap_channels
-            use_SPADE = True@bool
+        act_fn = silu@str
+        block_out_channels = [128, 256, 512]@lists    # modified!
+        in_channels = 3@int
+        latent_channels = 3@int
+        layers_per_block = 2@int      # modified!
+        norm_num_groups = 32@int
+        num_vq_embeddings = 8192@int  # modified!
+        out_channels = 3@int
+        sample_size = 256@int         # modified!
+        vq_embed_dim = None@str
+        segmap_channels = 35@int  # because we add 34 + 1 (edge info)
+        use_SPADE = True@bool
     
     [optimizer]
         lr = 4.5e-6@float
