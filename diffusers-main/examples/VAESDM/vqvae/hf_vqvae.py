@@ -79,13 +79,13 @@ class VQModel(ModelMixin, ConfigMixin):
             norm_num_groups=norm_num_groups,
             double_z=False,
         )
-
+        
         vq_embed_dim = vq_embed_dim if vq_embed_dim is not None else latent_channels
 
         self.quant_conv = nn.Conv2d(latent_channels, vq_embed_dim, 1)
         self.quantize = VectorQuantizer(num_vq_embeddings, vq_embed_dim, beta=0.25, remap=None, sane_index_shape=False)
         self.post_quant_conv = nn.Conv2d(vq_embed_dim, latent_channels, 1)
-
+        
         # pass init params to Decoder
         self.decoder = Decoder(
             in_channels=latent_channels,

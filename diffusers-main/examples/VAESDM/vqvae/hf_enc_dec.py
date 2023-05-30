@@ -2,8 +2,7 @@ from functools import partial
 import torch
 import torch.nn as nn
 
-from diffusers.models.unet_2d_blocks import UNetMidBlock2D, get_down_block
-from model.unet_2d_blocks import UNetSDMMidBlock2D, UNetMidBlock2D, get_up_block
+from model.unet_2d_blocks import UNetSDMMidBlock2D, UNetMidBlock2D, get_up_block, get_down_block
 
 
 class Encoder(nn.Module):
@@ -19,6 +18,7 @@ class Encoder(nn.Module):
         double_z=True,
     ):
         super().__init__()
+        down_block_types*=len(block_out_channels)
         self.layers_per_block = layers_per_block
 
         self.conv_in = torch.nn.Conv2d(
@@ -31,7 +31,7 @@ class Encoder(nn.Module):
 
         self.mid_block = None
         self.down_blocks = nn.ModuleList([])
-
+        
         # down
         output_channel = block_out_channels[0]
         for i, down_block_type in enumerate(down_block_types):
@@ -98,7 +98,7 @@ class Encoder(nn.Module):
             # down
             for down_block in self.down_blocks:
                 sample = down_block(sample)
-
+            
             # middle
             sample = self.mid_block(sample)
 
@@ -124,6 +124,8 @@ class Decoder(nn.Module):
         use_SPADE=True
     ):
         super().__init__()
+        up_block_types*=len(block_out_channels)
+
         self.use_SPADE = use_SPADE
         self.segmap_channels = segmap_channels
         if self.use_SPADE:
@@ -190,7 +192,7 @@ class Decoder(nn.Module):
 
         self.gradient_checkpointing = False
 
-    def forward(self, z):
+    def forward(self, z, segmap):
         sample = z
         sample = self.conv_in(sample)
 
@@ -204,20 +206,20 @@ class Decoder(nn.Module):
                 return custom_forward
 
             # middle
-            sample = torch.utils.checkpoint.checkpoint(create_custom_forward(self.mid_block), sample)
+            sample = torch.utils.checkpoint.checkpoint(create_custom_forward(self.mid_block), sample, segmap)
             sample = sample.to(upscale_dtype)
 
             # up
             for up_block in self.up_blocks:
-                sample = torch.utils.checkpoint.checkpoint(create_custom_forward(up_block), sample)
+                sample = torch.utils.checkpoint.checkpoint(create_custom_forward(up_block), sample, segmap)
         else:
             # middle
-            sample = self.mid_block(sample)
+            sample = self.mid_block(sample, segmap)
             sample = sample.to(upscale_dtype)
 
             # up
             for up_block in self.up_blocks:
-                sample = up_block(sample)
+                sample = up_block(sample, segmap)
 
         # post-process
         sample = self.conv_norm_out(sample)

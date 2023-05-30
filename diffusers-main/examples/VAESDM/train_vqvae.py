@@ -157,7 +157,7 @@ def main(cfger):
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
     # Move vae to gpu and cast to weight_dtype
-    vqvae.to(accelerator.device, dtype=weight_dtype)
+    #vqvae.to(accelerator.device, dtype=weight_dtype)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / cfger.gradient_accumulation_steps)
@@ -224,38 +224,38 @@ def main(cfger):
                     progress_bar.update(1)
                 continue
 
-            with accelerator.accumulate(vqvae):
-                imgs = batch["pixel_values"].to(weight_dtype)
-                segmap = preprocess_input(batch["segmap"], cfger.segmap_channels)
-                xrec, qloss = vqvae(imgs, segmap)
+            #with accelerator.accumulate(vqvae):
+            imgs = batch["pixel_values"].to(weight_dtype)
+            segmap = preprocess_input(batch["segmap"], cfger.segmap_channels)
+            xrec, qloss = vqvae(imgs, segmap)
 
-                # Train VQ-VAE, opt_idx == 0
-                vqvae.zero_grad()                   
-                aeloss, log_dict_ae = discr_mod(qloss, imgs, xrec, 0, global_step,
-                                                last_layer=vqvae.get_last_layer(), split="train")
+            ## Follow accelerator GAN example:
+            # Train discriminator, opt_idx == 1
+            discloss, log_dict_disc = disc_mod(qloss, imgs, xrec.detach(), 1, global_step,
+                                            last_layer=vqvae.get_last_layer(), split="train")
+            
+            accelerator.log({"train/discloss": discloss}, step=global_step)
+            accelerator.log({"log_dict_ae": log_dict_disc}, step=global_step)
+            accelerator.backward(discloss)
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(disc_mod.discriminator.parameters(), cfger.max_grad_norm)
+            disc_optim.step()
 
-                accelerator.log({"train/aeloss": aeloss}, step=global_step)
-                accelerator.log({"log_dict_ae": log_dict_ae}, step=global_step)
-                accelerator.backward(aeloss)
-                if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(vqvae.parameters(), cfger.max_grad_norm)
-                vqvae_optim.step()
-                
-                # Train discriminator, opt_idx == 1
-                discloss, log_dict_disc = discr_mod(qloss, imgs, xrec.detach(), 1, global_step,
-                                                last_layer=self.get_last_layer(), split="train")
-                
-                accelerator.log({"train/discloss": discloss}, step=global_step)
-                accelerator.log({"log_dict_ae": log_dict_disc}, step=global_step)
-                accelerator.backward(discloss)
-                if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(discr_mod.discriminator.parameters(), cfger.max_grad_norm)
-                disc_optim.step()
+            # Train VQ-VAE, opt_idx == 0
+            vqvae.zero_grad()                   
+            aeloss, log_dict_ae = disc_mod(qloss, imgs, xrec, 0, global_step,
+                                            last_layer=vqvae.get_last_layer(), split="train")
 
-                ## loss 計算和處理的template..
-                # Gather the losses across all processes for logging (if we use distributed training).
-                avg_loss = accelerator.gather(aeloss.repeat(cfger.train_batch_size)).mean()
-                train_loss += avg_loss.item() / cfger.gradient_accumulation_steps
+            accelerator.log({"train/aeloss": aeloss}, step=global_step)
+            accelerator.log({"log_dict_ae": log_dict_ae}, step=global_step)
+            accelerator.backward(aeloss)
+            if accelerator.sync_gradients:
+                accelerator.clip_grad_norm_(vqvae.parameters(), cfger.max_grad_norm)
+            vqvae_optim.step()
+
+            # Gather the losses across all processes for logging (if we use distributed training).
+            avg_loss = accelerator.gather(aeloss.repeat(cfger.train_batch_size)).mean()
+            train_loss += avg_loss.item() / cfger.gradient_accumulation_steps
 
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
@@ -282,12 +282,12 @@ def main(cfger):
                 batch = next(val_dataloader)
                 imgs = batch["pixel_values"].to(weight_dtype)
                 segmap = preprocess_input(batch["segmap"], cfger.segmap_channels)
-                breakpoint()
+
                 xrec, qloss = vqvae(imgs, segmap)
-                aeloss, log_dict_ae = discr_mod(qloss, imgs, xrec, 0, global_step,
+                aeloss, log_dict_ae = disc_mod(qloss, imgs, xrec, 0, global_step,
                                                     last_layer=vqvae.get_last_layer(), split="val")
 
-                discloss, log_dict_disc = discr_mod(qloss, imgs, xrec, 1, global_step,
+                discloss, log_dict_disc = disc_mod(qloss, imgs, xrec, 1, global_step,
                                                     last_layer=vqvae.get_last_layer(), split="val")
                 rec_loss = log_dict_ae["val/rec_loss"]
                 accelerator.log({"val/rec_loss": rec_loss}, step=global_step)
@@ -319,9 +319,11 @@ def get_cfg_str():
     seed = 42@int
 
     # efficient tricks 
+        checkpointing_steps = 100@int
         use_8bit_adam = False@bool
         enable_xformers_memory_efficient_attention = False@bool
         gradient_checkpointing = False@bool
+        max_grad_norm = 1.0@float
         allow_tf32 = False@bool
         scale_lr = False@bool
 
@@ -335,9 +337,9 @@ def get_cfg_str():
         tracker_project_name = VQVAE_train@str
 
     # train-loop
-        train_batch_size = 12@int
+        train_batch_size = 6@int
         max_train_steps = -1@int
-        num_train_epochs = 1000@int
+        num_train_epochs = 100@int
         resume_from_checkpoint = False@bool
         validation_step = False@bool
         segmap_channels = 34@int
