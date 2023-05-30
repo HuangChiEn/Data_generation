@@ -225,13 +225,13 @@ def main(cfger):
                 continue
 
             with accelerator.accumulate(vqvae):
-                imgs = batch["pixel_values"].to(dtype=weight_dtype, memory_format=torch.contiguous_format)
+                imgs = batch["pixel_values"].to(weight_dtype)
                 segmap = preprocess_input(batch["segmap"], cfger.segmap_channels)
                 xrec, qloss = vqvae(imgs, segmap)
-                
+
                 # Train VQ-VAE, opt_idx == 0
                 vqvae.zero_grad()                   
-                aeloss, log_dict_ae = disc_mod(qloss, imgs, xrec, 0, global_step,
+                aeloss, log_dict_ae = discr_mod(qloss, imgs, xrec, 0, global_step,
                                                 last_layer=vqvae.get_last_layer(), split="train")
 
                 accelerator.log({"train/aeloss": aeloss}, step=global_step)
@@ -242,14 +242,14 @@ def main(cfger):
                 vqvae_optim.step()
                 
                 # Train discriminator, opt_idx == 1
-                discloss, log_dict_disc = disc_mod(qloss, imgs, xrec.detach(), 1, global_step,
+                discloss, log_dict_disc = discr_mod(qloss, imgs, xrec.detach(), 1, global_step,
                                                 last_layer=self.get_last_layer(), split="train")
                 
                 accelerator.log({"train/discloss": discloss}, step=global_step)
                 accelerator.log({"log_dict_ae": log_dict_disc}, step=global_step)
                 accelerator.backward(discloss)
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(disc_mod.discriminator.parameters(), cfger.max_grad_norm)
+                    accelerator.clip_grad_norm_(discr_mod.discriminator.parameters(), cfger.max_grad_norm)
                 disc_optim.step()
 
                 ## loss 計算和處理的template..
@@ -282,12 +282,12 @@ def main(cfger):
                 batch = next(val_dataloader)
                 imgs = batch["pixel_values"].to(weight_dtype)
                 segmap = preprocess_input(batch["segmap"], cfger.segmap_channels)
-                
+                breakpoint()
                 xrec, qloss = vqvae(imgs, segmap)
-                aeloss, log_dict_ae = disc_mod(qloss, imgs, xrec, 0, global_step,
+                aeloss, log_dict_ae = discr_mod(qloss, imgs, xrec, 0, global_step,
                                                     last_layer=vqvae.get_last_layer(), split="val")
 
-                discloss, log_dict_disc = disc_mod(qloss, imgs, xrec, 1, global_step,
+                discloss, log_dict_disc = discr_mod(qloss, imgs, xrec, 1, global_step,
                                                     last_layer=vqvae.get_last_layer(), split="val")
                 rec_loss = log_dict_ae["val/rec_loss"]
                 accelerator.log({"val/rec_loss": rec_loss}, step=global_step)

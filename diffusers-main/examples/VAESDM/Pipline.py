@@ -226,6 +226,7 @@ class SDMPipeline(DiffusionPipeline):
         num_inference_steps: int = 1000,
         output_type: Optional[str] = "pil",
         return_dict: bool = True,
+        s: int = 1,
         **kwargs,
     ) -> Union[Tuple, ImagePipelineOutput]:
         r"""
@@ -279,6 +280,13 @@ class SDMPipeline(DiffusionPipeline):
             latent_model_input = self.scheduler.scale_model_input(latents, t)
             # predict the noise residual
             noise_prediction = self.unet(latent_model_input, segmap, t).sample
+
+            if s > 1.0:
+                model_output_zero = self.unet(latent_model_input, torch.zeros_like(segmap), t).sample
+                noise_prediction[:, :3] = model_output_zero[:, :3] + s * (noise_prediction[:, :3] - model_output_zero[:, :3])
+
+
+
             # compute the previous noisy sample x_t -> x_t-1
             latents = self.scheduler.step(noise_prediction, t, latents, **extra_kwargs).prev_sample
 
@@ -286,6 +294,7 @@ class SDMPipeline(DiffusionPipeline):
         # latents /= self.vae.config.scaling_factor#(0.18215)
         # image = self.vae.decode(latents).sample
         image = latents
+        #image = (image + 1) / 2.0
         image = (image / 2 + 0.5).clamp(0, 1)
         image = image.cpu().permute(0, 2, 3, 1).numpy()
         if output_type == "pil":

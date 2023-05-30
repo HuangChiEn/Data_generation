@@ -45,9 +45,14 @@ from model.unet_2d_sdm import SDMUNet2DModel
 from model.unet import UNetModel
 from Cityscapes import load_data
 from Pipline import SDMPipeline
+from diffusers.utils import randn_tensor
+
 
 if is_wandb_available():
     import wandb
+
+from utils.loss import normal_kl, discretized_gaussian_log_likelihood, get_variance
+
 
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -115,13 +120,7 @@ def parse_args():
         required=True,
         help="Path to pretrained model or model identifier from huggingface.co/models.",
     )
-    parser.add_argument(
-        "--resume_dir",
-        type=str,
-        default=None,
-        required=False,
-        help="Resume the checkpoint",
-    )
+
     parser.add_argument(
         "--revision",
         type=str,
@@ -185,7 +184,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="testFinalattnsdm-model",
+        default="learn_var_sdm-model",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
@@ -219,7 +218,7 @@ def parse_args():
         help="whether to randomly flip images horizontally",
     )
     parser.add_argument(
-        "--train_batch_size", type=int, default=12, help="Batch size (per device) for the training dataloader."
+        "--train_batch_size", type=int, default=8, help="Batch size (per device) for the training dataloader."
     )
     parser.add_argument("--num_train_epochs", type=int, default=1000)
     parser.add_argument(
@@ -231,7 +230,7 @@ def parse_args():
     parser.add_argument(
         "--gradient_accumulation_steps",
         type=int,
-        default=2,
+        default=1,
         help="Number of updates steps to accumulate before performing a backward/update pass.",
     )
     parser.add_argument(
@@ -346,7 +345,7 @@ def parse_args():
     parser.add_argument(
         "--checkpointing_steps",
         type=int,
-        default=1000,
+        default=5000,
         help=(
             "Save a checkpoint of the training state every X updates. These checkpoints are only suitable for resuming"
             " training using `--resume_from_checkpoint`."
@@ -492,6 +491,7 @@ def main():
 
     # Load scheduler and models.
     noise_scheduler = DDPMScheduler.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="scheduler")
+    noise_scheduler.variance_type="learned"
     #vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae", revision=args.revision)
     # Freeze vae
     #vae.requires_grad_(False)
@@ -526,7 +526,7 @@ def main():
         image_size=image_size,
         in_channels=3,
         model_channels=256,
-        out_channels=3,
+        out_channels=3*2 if "learned" in noise_scheduler.variance_type else 3,
         num_res_blocks=2,
         attention_resolutions=(8,16,32),
         dropout=0,
@@ -847,6 +847,8 @@ def main():
     progress_bar = tqdm(range(global_step, args.max_train_steps), disable=not accelerator.is_local_main_process)
     progress_bar.set_description("Steps")
 
+    posterior_log_variance_clipped = get_variance(noise_scheduler)
+
     for epoch in range(first_epoch, args.num_train_epochs):
         unet.train()
         train_loss = 0.0
@@ -893,7 +895,33 @@ def main():
                 model_pred = unet(noisy_latents, segmap, timesteps).sample
 
                 if args.snr_gamma is None:
+                    model_pred_var = None
+                    if "learn" in noise_scheduler.variance_type:
+                        assert model_pred.shape[1] == noisy_latents.shape[1] * 2
+                        model_pred, model_pred_var = torch.split(model_pred, noisy_latents.shape[1], dim=1)
+
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+
+                    if "learn" in noise_scheduler.variance_type:
+                        model_pred_mean = model_pred.detach()
+
+                        true_log_variance_clipped = posterior_log_variance_clipped.to(device=timesteps.device)[timesteps].float()[..., None, None, None]
+
+                        kl = normal_kl(
+                            target, true_log_variance_clipped, model_pred_mean, model_pred_var
+                        )
+                        kl = kl.mean() / np.log(2.0)
+
+                        decoder_nll = -discretized_gaussian_log_likelihood(
+                            latents, means=model_pred_mean, log_scales=0.5 * model_pred_var
+                        )
+                        assert decoder_nll.shape == latents.shape
+                        decoder_nll = decoder_nll.mean() / np.log(2.0)
+
+                        # At the first timestep return the decoder NLL,
+                        # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
+                        kl_loss = torch.where((timesteps == 0), decoder_nll, kl).mean()
+                        loss += kl_loss
                 else:
                     # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
                     # Since we predict the noise instead of x_0, the original formulation is slightly changed.
@@ -908,6 +936,8 @@ def main():
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
                     loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
                     loss = loss.mean()
+
+
 
                 # Gather the losses across all processes for logging (if we use distributed training).
                 avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()

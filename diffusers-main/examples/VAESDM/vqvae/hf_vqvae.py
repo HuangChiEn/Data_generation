@@ -105,7 +105,7 @@ class VQModel(ModelMixin, ConfigMixin):
         quant, emb_loss, info = self.quantize(h)
         return quant, emb_loss, info
 
-    def decode(self, quant, segmap):
+    def decode(self, quant, segmap=None):
         quant = self.post_quant_conv(quant)
         dec = self.decoder(quant, segmap)
         return dec
@@ -143,7 +143,7 @@ class VQModel(ModelMixin, ConfigMixin):
 
         if optimizer_idx == 1:
             # discriminator
-            discloss, log_dict_disc = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
+            discloss, log_dict_disc = self.loss(qloss, x, xrec.detach(), optimizer_idx, self.global_step,
                                             last_layer=self.get_last_layer(), split="train")
             self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
             self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)

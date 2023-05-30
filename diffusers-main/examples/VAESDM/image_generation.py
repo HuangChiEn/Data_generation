@@ -43,18 +43,18 @@ def preprocess_input(data, num_classes):
     return input_semantics
 
 
-def get_dataloader(data_dir, image_size, batch_size, num_workers):
+def get_dataloader(data_dir, image_size, batch_size, num_workers, subset_type="train"):
     train_dataset = load_data(
         data_dir,
         resize_size=image_size,
-        subset_type='train'
+        subset_type=subset_type
     )
     return torch.utils.data.DataLoader(
         train_dataset,
         shuffle=False,
         collate_fn=collate_fn,
-        batch_size=batch_size
-        #num_workers=num_workers,
+        batch_size=batch_size,
+        num_workers=num_workers,
     )
 
 def get_diffusion_modules(unet_path, numk_ckpt, vae_type=None):
@@ -93,7 +93,7 @@ def get_pipeline(pipe_type, pipe_path=None, unet=None, vae=None):
 def get_cfg_str():
     return '''
     seed = 42@int
-    num_inference_steps = 1000@int
+    num_inference_steps = 50 @int
     scheduler_type = DDPM@str
 
     save_dir = Gen_results@str
@@ -104,10 +104,11 @@ def get_cfg_str():
         image_size = 270@int
         batch_size = 8@int
         num_workers = 1@int
+        subset_type = val@str
 
     [diff_mod]
         unet_path = /data/harry/Data_generation/diffusers-main/examples/VAESDM/testFinalattnsdm-model@str
-        numk_ckpt = 40@int
+        numk_ckpt = 20@int
         vae_type = @str
     
     [pipe]
@@ -148,7 +149,7 @@ if __name__ == "__main__":
 
         segmap = preprocess_input(batch["segmap"], num_classes=34)
         segmap = segmap.to("cuda").to(torch.float16)
-        images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps).images
+        images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = 1).images
         img_lst.extend(images)
 
 
