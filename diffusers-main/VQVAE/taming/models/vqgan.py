@@ -13,16 +13,17 @@ class VQModel(pl.LightningModule):
                  embed_dim,
                  ckpt_path=None,
                  ignore_keys=[],
-                 image_key="image",
+                 image_key="pixel_values",
                  colorize_nlabels=None,
                  monitor=None,
                  remap=None,
                  sane_index_shape=False,  # tell vector quantizer to return indices as bhw
                  ):
         super().__init__()
-        
+        self.learning_rate = 1e-4
         self.loss = instantiate_from_config(lossconfig)
         self.vqvae = VQSub(**ddconfig)
+        self.automatic_optimization = False
 
         if ckpt_path is not None:
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)

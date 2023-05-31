@@ -434,7 +434,6 @@ class SDMResBlock(CondTimestepBlock):
             h = self.out_layers(h)
         return self.skip_connection(x) + h
 
-
 class AttentionBlock(nn.Module):
     """
     An attention block that allows spatial positions to attend to each other.

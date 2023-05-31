@@ -93,7 +93,7 @@ def get_pipeline(pipe_type, pipe_path=None, unet=None, vae=None):
 def get_cfg_str():
     return '''
     seed = 42@int
-    num_inference_steps = 1000@int
+    num_inference_steps = 50@int
     scheduler_type = DDPM@str
     save_dir = Gen_results@str
     num_save_im = 8@int
@@ -107,7 +107,7 @@ def get_cfg_str():
 
     [diff_mod]
         unet_path = /data/harry/Data_generation/diffusers-main/examples/VAESDM/learn_var_sdm-model@str
-        numk_ckpt = 25@int
+        numk_ckpt = 30@int
         vae_type = @str
 
     
