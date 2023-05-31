@@ -12,7 +12,6 @@ from cityscape_ds_alpha import load_data, collate_fn
 from vqvae.hf_vqvae import VQModel
 from vqvae.vqperceptual import VQLPIPSWithDiscriminator
 
-from easy_configer.IO_Converter import IO_Converter
 
 import math
 import logging
@@ -86,6 +85,27 @@ def main(cfger):
     ## Setup model
     vqvae = VQModel(**cfger.model)
     disc_mod = VQLPIPSWithDiscriminator(**cfger.loss)
+
+    # create custom saving & loading hooks so that `accelerator.save_state(...)` serializes in a nice format
+    def save_model_hook(models, weights, output_dir):
+        # idx 0 is VQVAE
+        model = models[0]
+        model.save_pretrained(os.path.join(output_dir, "vqvae"))
+        # make sure to pop weight so that corresponding model is not saved again
+        weights.pop()
+
+    def load_model_hook(models, input_dir):
+        model = models[0]
+
+        # load diffusers style into model
+        load_model = SDMUNet2DModel.from_pretrained(input_dir, subfolder="vqvae")
+        model.register_to_config(**load_model.config)
+
+        model.load_state_dict(load_model.state_dict())
+        del load_model
+
+    accelerator.register_save_state_pre_hook(save_model_hook)
+    accelerator.register_load_state_pre_hook(load_model_hook)
 
     # accelerator plugins ~ enjoy the community
     if cfger.enable_xformers_memory_efficient_attention:
@@ -224,7 +244,6 @@ def main(cfger):
                     progress_bar.update(1)
                 continue
 
-            #with accelerator.accumulate(vqvae):
             imgs = batch["pixel_values"].to(weight_dtype)
             segmap = preprocess_input(batch["segmap"], cfger.segmap_channels)
             xrec, qloss = vqvae(imgs, segmap)
@@ -255,7 +274,7 @@ def main(cfger):
 
             # Gather the losses across all processes for logging (if we use distributed training).
             avg_loss = accelerator.gather(aeloss.repeat(cfger.train_batch_size)).mean()
-            train_loss += avg_loss.item() / cfger.gradient_accumulation_steps
+            train_loss += avg_loss.item() # / cfger.gradient_accumulation_steps
 
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
@@ -319,7 +338,7 @@ def get_cfg_str():
     seed = 42@int
 
     # efficient tricks 
-        checkpointing_steps = 100@int
+        checkpointing_steps = 1000@int
         use_8bit_adam = False@bool
         enable_xformers_memory_efficient_attention = False@bool
         gradient_checkpointing = False@bool
