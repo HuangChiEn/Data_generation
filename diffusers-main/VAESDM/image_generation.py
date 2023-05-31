@@ -93,12 +93,11 @@ def get_pipeline(pipe_type, pipe_path=None, unet=None, vae=None):
 def get_cfg_str():
     return '''
     seed = 42@int
-    num_inference_steps = 50 @int
+    num_inference_steps = 1000@int
     scheduler_type = DDPM@str
-
     save_dir = Gen_results@str
     num_save_im = 8@int
-    
+    s = 1.5@float 
     [dataloader]
         data_dir = /data1/dataset/Cityscapes@str
         image_size = 270@int
@@ -107,9 +106,10 @@ def get_cfg_str():
         subset_type = val@str
 
     [diff_mod]
-        unet_path = /data/harry/Data_generation/diffusers-main/examples/VAESDM/testFinalattnsdm-model@str
-        numk_ckpt = 20@int
+        unet_path = /data/harry/Data_generation/diffusers-main/examples/VAESDM/learn_var_sdm-model@str
+        numk_ckpt = 25@int
         vae_type = @str
+
     
     [pipe]
         pipe_type = SDMPipeline@str
@@ -149,7 +149,7 @@ if __name__ == "__main__":
 
         segmap = preprocess_input(batch["segmap"], num_classes=34)
         segmap = segmap.to("cuda").to(torch.float16)
-        images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = 1).images
+        images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = cfger.s).images
         img_lst.extend(images)
 
 
