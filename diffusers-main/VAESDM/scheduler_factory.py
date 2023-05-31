@@ -27,6 +27,8 @@ def scheduler_setup(pipe : DiffusionPipeline = None, scheduler_type : str = 'Uni
     sch_cfg = from_config if from_config else pipe.scheduler.config    
     pipe.scheduler = scheduler_factory[scheduler_type](**kwargs) if kwargs \
                         else scheduler_factory[scheduler_type](sch_cfg)
+    pipe.scheduler = DDPMScheduler.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="scheduler")
+    pipe.scheduler.variance_type="learned"
     return pipe
 
 
