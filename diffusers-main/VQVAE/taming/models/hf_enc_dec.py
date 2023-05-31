@@ -2,7 +2,7 @@ from functools import partial
 import torch
 import torch.nn as nn
 
-from model.unet_2d_blocks import UNetSDMMidBlock2D, UNetMidBlock2D, get_up_block, get_down_block
+from taming.models.unet_2d_blocks import UNetSDMMidBlock2D, UNetMidBlock2D, get_up_block, get_down_block
 
 
 class Encoder(nn.Module):
@@ -16,7 +16,7 @@ class Encoder(nn.Module):
         norm_num_groups=32,
         act_fn="silu",
         double_z=True,
-        **ignore_kwargs,
+        **ignore_kwargs
     ):
         super().__init__()
         down_block_types*=len(block_out_channels)

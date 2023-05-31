@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from taming.models.vqvae import VQModel
+from taming.models.vqvae import VQSub
 
 from main import instantiate_from_config
 
@@ -20,8 +20,9 @@ class VQModel(pl.LightningModule):
                  sane_index_shape=False,  # tell vector quantizer to return indices as bhw
                  ):
         super().__init__()
+        
         self.loss = instantiate_from_config(lossconfig)
-        self.vqvae = VQModel(ddconfig, n_embed, embed_dim, image_key, remap, sane_index_shape)
+        self.vqvae = VQSub(**ddconfig)
 
         if ckpt_path is not None:
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
@@ -55,6 +56,7 @@ class VQModel(pl.LightningModule):
         return x.float()
 
     def training_step(self, batch, batch_idx, optimizer_idx):
+        breakpoint()
         x = self.get_input(batch, self.image_key)
         xrec, qloss = self(x)
 

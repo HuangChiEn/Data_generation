@@ -163,12 +163,12 @@ class DataModuleFromConfig(pl.LightningDataModule):
                 self.datasets[k] = WrappedDataset(self.datasets[k])
 
     def _train_dataloader(self):
-        return DataLoader(self.datasets["train"], batch_size=self.batch_size,
+        return DataLoader(self.datasets["train"], batch_size=self.batch_size, drop_last=True,
                           num_workers=self.num_workers, shuffle=True, collate_fn=custom_collate)
 
     def _val_dataloader(self):
         return DataLoader(self.datasets["validation"],
-                          batch_size=self.batch_size,
+                          batch_size=self.batch_size, drop_last=True,
                           num_workers=self.num_workers, collate_fn=custom_collate)
 
     def _test_dataloader(self):
@@ -420,9 +420,10 @@ if __name__ == "__main__":
         # merge trainer cli with config
         trainer_config = lightning_config.get("trainer", OmegaConf.create())
         # default to ddp
-        trainer_config["distributed_backend"] = "ddp"
+        #trainer_config["distributed_backend"] = "ddp"
         for k in nondefault_trainer_args(opt):
             trainer_config[k] = getattr(opt, k)
+
         if not "gpus" in trainer_config:
             del trainer_config["distributed_backend"]
             cpu = True
@@ -540,16 +541,18 @@ if __name__ == "__main__":
         # NOTE according to https://pytorch-lightning.readthedocs.io/en/latest/datamodules.html
         # calling these ourselves should not be necessary but it is.
         # lightning still takes care of proper multiprocessing though
-        data.prepare_data()
-        data.setup()
+        #data.prepare_data()
+        #data.setup()
 
         # configure learning rate
         bs, base_lr = config.data.params.batch_size, config.model.base_learning_rate
-        if not cpu:
-            ngpu = len(lightning_config.trainer.gpus.strip(",").split(','))
-        else:
-            ngpu = 1
-        accumulate_grad_batches = lightning_config.trainer.accumulate_grad_batches or 1
+        #if not cpu:
+        #    ngpu = len(lightning_config.trainer.gpus.strip(",").split(','))
+        #else:
+        #    ngpu = 1
+        ngpu = 1
+        #accumulate_grad_batches = lightning_config.trainer.accumulate_grad_batches or 1
+        accumulate_grad_batches = 1
         print(f"accumulate_grad_batches = {accumulate_grad_batches}")
         lightning_config.trainer.accumulate_grad_batches = accumulate_grad_batches
         model.learning_rate = accumulate_grad_batches * ngpu * bs * base_lr
@@ -571,7 +574,6 @@ if __name__ == "__main__":
         import signal
         signal.signal(signal.SIGUSR1, melk)
         signal.signal(signal.SIGUSR2, divein)
-
         # run
         if opt.train:
             try:
