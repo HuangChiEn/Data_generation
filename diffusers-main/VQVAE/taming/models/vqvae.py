@@ -1,9 +1,8 @@
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.configuration_utils import ConfigMixin, register_to_config
-from taming.modules.diffusionmodules.model import Encoder, Decoder
+from taming.modules.hf_enc_dec import Encoder, Decoder
 from taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
 import torch
-import torch.nn.functional as F
 
 class VQModel(ModelMixin, ConfigMixin):
     @register_to_config
