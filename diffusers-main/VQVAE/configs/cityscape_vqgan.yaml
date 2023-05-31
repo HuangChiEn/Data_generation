@@ -5,16 +5,17 @@ model:
     embed_dim: 256
     n_embed: 1024
     ddconfig:
-      double_z: False
-      z_channels: 256
-      resolution: 256
+      act_fn: silu
+      block_out_channels: [128, 256, 512]  # modified!
       in_channels: 3
-      out_ch: 3
-      ch: 128
-      ch_mult: [ 1,1,2,2,4]  # num_down = len(ch_mult)-1
-      num_res_blocks: 2
-      attn_resolutions: [16]
-      dropout: 0.0
+      latent_channels: 3
+      layers_per_block: 2       # modified!
+      norm_num_groups: 32
+      num_vq_embeddings: 8192   # modified!
+      out_channels: 3 
+      sample_size: 256          # modified!
+      segmap_channels: 35       # because we add 34 + 1 (edge info)
+      use_SPADE: True
 
     lossconfig:
       target: taming.modules.losses.vqperceptual.VQLPIPSWithDiscriminator
