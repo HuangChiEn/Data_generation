@@ -4,7 +4,7 @@ from taming.modules.hf_enc_dec import Encoder, Decoder
 from taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
 import torch
 
-class VQModel(ModelMixin, ConfigMixin):
+class VQModel(ModelMixin):
     @register_to_config
     def __init__(self,
                  ddconfig,
