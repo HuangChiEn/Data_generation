@@ -13,7 +13,7 @@ class VQSub(ModelMixin, ConfigMixin):
         in_channels: int = 3,
         out_channels: int = 3,
         down_block_types: Tuple[str] = ("DownEncoderBlock2D",),
-        up_block_types: Tuple[str] = ("UpDecoderBlock2D",),
+        up_block_types: Tuple[str] = ("SDMUpDecoderBlock2D",),
         block_out_channels: Tuple[int] = (64,),
         layers_per_block: int = 1,
         act_fn: str = "silu",

@@ -50,7 +50,6 @@ class VQModel(pl.LightningModule):
         return dec, diff
 
     def get_input(self, batch, k):
-        print(batch.keys())
         x = batch["pixel_values"]
         y = batch["segmap"]
         y = self.preprocess_input(y, 34)
@@ -64,27 +63,35 @@ class VQModel(pl.LightningModule):
         xrec, qloss = self(x, y)
         opt_ae, opt_disc = self.optimizers()
 
+        self.toggle_optimizer(opt_ae)
+
         # autoencode
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
                                         last_layer=self.get_last_layer(), split="train")
 
         self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
         #self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
-        opt_ae.zero_grad()
+
         self.manual_backward(aeloss)
         opt_ae.step()
+        opt_ae.zero_grad()
+        self.untoggle_optimizer(opt_ae)
+
         #return aeloss
 
         # discriminator
+        self.toggle_optimizer(opt_disc)
+
         discloss, log_dict_disc = self.loss(qloss, x, xrec, 1, self.global_step,
                                         last_layer=self.get_last_layer(), split="train")
         self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
         #self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
 
-        opt_disc.zero_grad()
+
         self.manual_backward(discloss)
         opt_disc.step()
-
+        opt_disc.zero_grad()
+        self.untoggle_optimizer(opt_disc)
         #return discloss
 
     def validation_step(self, batch, batch_idx):
