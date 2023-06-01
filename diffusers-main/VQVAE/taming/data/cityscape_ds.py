@@ -40,18 +40,17 @@ def load_data(
         raise ValueError(f"Doesn't support subset_type mode {subset_type}, it should be one of it ('train' or 'val' or 'all')!!")
     
     subset_type = ['train', 'val'] if subset_type == 'all' else [subset_type]
-    all_ds = {}.fromkeys(subset_type)
+    all_ds = {}
     for subset in subset_type:
         all_ds[subset] = Cityscape_ds(data_dir, subset, resize_size, random_flip)
 
-    if ret_dataset:
-        # integrate with previous version, ret dict while enable 'all' subset_type
-        return all_ds[subset_type[0]] if len(subset_type) == 1 else all_ds
-
     # wrap with torch dataloader ~
-    for subset in all_ds.keys():
-        all_ds[subset] = DataLoader(all_ds[subset], collate_fn=collate_fn, **data_ld_kwargs)
-    return all_ds
+    if not ret_dataset:
+        for subset in all_ds.keys():
+            all_ds[subset] = DataLoader(all_ds[subset], collate_fn=collate_fn, **data_ld_kwargs)
+    
+    # integrate with previous version, ret dict while enable 'all' subset_type
+    return all_ds[subset_type[0]] if len(subset_type) == 1 else all_ds
 
 class Cityscape_ds(Dataset):
     def __init__(self, data_dir, subset, resize_size, random_flip):
