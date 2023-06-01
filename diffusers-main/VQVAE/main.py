@@ -325,13 +325,16 @@ def main():
     cli = OmegaConf.from_dotlist(unknown)
     config = OmegaConf.merge(*configs, cli)
 
+    from pytorch_lightning.loggers import WandbLogger
+    wandb_logger = WandbLogger()
+
     train_loader = cityscape_ds.load_data(
         data_dir=config.data.params.data_dir,
         resize_size=config.data.params.image_size,
         subset_type='train',
         ret_dataset=False,
         data_ld_kwargs={'batch_size': 6, 'num_workers': 8}
-    )
+    )["train"]
 
     val_loader = cityscape_ds.load_data(
         data_dir=config.data.params.data_dir,
@@ -339,11 +342,11 @@ def main():
         subset_type='val',
         ret_dataset=False,
         data_ld_kwargs={'batch_size': 6, 'num_workers': 8}
-    )
+    )["val"]
 
     model = instantiate_from_config(config.model)
 
-    trainer = pl.Trainer(devices=1, precision=16, strategy="ddp")
+    trainer = pl.Trainer(devices=1, precision=16, logger=wandb_logger)
     trainer.fit(model, train_loader, val_loader)
 
 if __name__ == "__main__":

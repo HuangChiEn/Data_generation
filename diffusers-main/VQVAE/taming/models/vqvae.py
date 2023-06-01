@@ -38,13 +38,13 @@ class VQSub(ModelMixin, ConfigMixin):
             norm_num_groups=norm_num_groups,
             double_z=False,
         )
-        
+
         vq_embed_dim = vq_embed_dim if vq_embed_dim is not None else latent_channels
 
         self.quant_conv = nn.Conv2d(latent_channels, vq_embed_dim, 1)
         self.quantize = VectorQuantizer(num_vq_embeddings, vq_embed_dim, beta=0.25, remap=None, sane_index_shape=False)
         self.post_quant_conv = nn.Conv2d(vq_embed_dim, latent_channels, 1)
-        
+
         # pass init params to Decoder
         self.decoder = Decoder(
             in_channels=latent_channels,
@@ -67,9 +67,9 @@ class VQSub(ModelMixin, ConfigMixin):
         quant, emb_loss, info = self.quantize(h)
         return quant, emb_loss, info
 
-    def decode(self, quant):
+    def decode(self, quant, segmap):
         quant = self.post_quant_conv(quant)
-        dec = self.decoder(quant)
+        dec = self.decoder(quant, segmap)
         return dec
 
     def decode_code(self, code_b):
@@ -77,9 +77,9 @@ class VQSub(ModelMixin, ConfigMixin):
         dec = self.decode(quant_b)
         return dec
 
-    def forward(self, input):
+    def forward(self, input, segmap):
         quant, diff, _ = self.encode(input)
-        dec = self.decode(quant)
+        dec = self.decode(quant, segmap)
         return dec, diff
 
     def get_last_layer(self):

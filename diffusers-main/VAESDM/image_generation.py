@@ -42,7 +42,6 @@ def preprocess_input(data, num_classes):
 
     return input_semantics
 
-
 def get_dataloader(data_dir, image_size, batch_size, num_workers, subset_type="train"):
     train_dataset = load_data(
         data_dir,
@@ -93,7 +92,8 @@ def get_pipeline(pipe_type, pipe_path=None, unet=None, vae=None):
 def get_cfg_str():
     return '''
     seed = 42@int
-    num_inference_steps = 50@int
+    
+    num_inference_steps = 1000@int
     scheduler_type = DDPM@str
     save_dir = Gen_results@str
     num_save_im = 8@int
@@ -106,8 +106,8 @@ def get_cfg_str():
         subset_type = val@str
 
     [diff_mod]
-        unet_path = /data/harry/Data_generation/diffusers-main/examples/VAESDM/learn_var_sdm-model@str
-        numk_ckpt = 30@int
+        unet_path = /data/harry/Data_generation/diffusers-main/VAESDM/learn_var_dfsc_sdm-model@str
+        numk_ckpt = 5@int
         vae_type = @str
 
     
@@ -149,7 +149,7 @@ if __name__ == "__main__":
 
         segmap = preprocess_input(batch["segmap"], num_classes=34)
         segmap = segmap.to("cuda").to(torch.float16)
-        images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = cfger.s).images
+        images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = 1.5).images
         img_lst.extend(images)
 
 
