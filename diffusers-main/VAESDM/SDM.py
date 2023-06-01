@@ -492,7 +492,7 @@ def main():
     # Load scheduler and models.
     #noise_scheduler = DDPMScheduler.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="scheduler")
     noise_scheduler = DDPMScheduler()
-    noise_scheduler.variance_type="learned_range"
+    noise_scheduler.variance_type="learned"
     #vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae", revision=args.revision)
     # Freeze vae
     #vae.requires_grad_(False)
@@ -618,7 +618,7 @@ def main():
                 model = models.pop()
 
                 # load diffusers style into model
-                load_model = SDMUNet2DModel.from_pretrained(input_dir, subfolder="unet")
+                load_model = UNetModel.from_pretrained(input_dir, subfolder="unet")
                 model.register_to_config(**load_model.config)
 
                 model.load_state_dict(load_model.state_dict())

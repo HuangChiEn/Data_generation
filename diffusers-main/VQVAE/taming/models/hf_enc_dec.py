@@ -74,7 +74,7 @@ class Encoder(nn.Module):
         conv_out_channels = 2 * out_channels if double_z else out_channels
         self.conv_out = nn.Conv2d(block_out_channels[-1], conv_out_channels, 3, padding=1)
 
-        self.gradient_checkpointing = False
+        self.gradient_checkpointing = True
 
     def forward(self, x):
         sample = x
@@ -90,10 +90,12 @@ class Encoder(nn.Module):
 
             # down
             for down_block in self.down_blocks:
-                sample = torch.utils.checkpoint.checkpoint(create_custom_forward(down_block), sample)
+                #sample = torch.utils.checkpoint.checkpoint(create_custom_forward(down_block), sample)
+                sample = down_block(sample)
 
             # middle
-            sample = torch.utils.checkpoint.checkpoint(create_custom_forward(self.mid_block), sample)
+            #sample = torch.utils.checkpoint.checkpoint(create_custom_forward(self.mid_block), sample)
+            sample = self.mid_block(sample)
 
         else:
             # down
@@ -116,7 +118,7 @@ class Decoder(nn.Module):
         self,
         in_channels=3,
         out_channels=3,
-        up_block_types=("UpDecoderBlock2D",),
+        up_block_types=("SDMUpDecoderBlock2D",),
         block_out_channels=(64,),
         layers_per_block=2,
         norm_num_groups=32,
@@ -192,7 +194,7 @@ class Decoder(nn.Module):
         self.conv_act = nn.SiLU()
         self.conv_out = nn.Conv2d(block_out_channels[0], out_channels, 3, padding=1)
 
-        self.gradient_checkpointing = False
+        self.gradient_checkpointing = True
 
     def forward(self, z, segmap):
         sample = z

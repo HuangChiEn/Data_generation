@@ -14,6 +14,7 @@ from pytorch_lightning.utilities import rank_zero_only
 from taming.data import cityscape_ds
 #from taming.data.utils import custom_collate
 from taming.data.cityscape_ds import collate_fn as custom_collate
+from pytorch_lightning.strategies.ddp import DDPStrategy
 
 def get_obj_from_str(string, reload=False):
     module, cls = string.rsplit(".", 1)
@@ -346,7 +347,7 @@ def main():
 
     model = instantiate_from_config(config.model)
 
-    trainer = pl.Trainer(devices=1, precision=16, logger=wandb_logger)
+    trainer = pl.Trainer(devices=1, precision=16, logger=wandb_logger)#strategy=DDPStrategy(find_unused_parameters=True)
     trainer.fit(model, train_loader, val_loader)
 
 
