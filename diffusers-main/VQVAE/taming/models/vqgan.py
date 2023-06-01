@@ -45,42 +45,51 @@ class VQModel(pl.LightningModule):
         self.load_state_dict(sd, strict=False)
         print(f"Restored from {path}")
 
-    def forward(self, input):
-        dec, diff = self.vqvae(input)
+    def forward(self, input, segmap):
+        dec, diff = self.vqvae(input, segmap)
         return dec, diff
 
     def get_input(self, batch, k):
-        x = batch[k]
+        print(batch.keys())
+        x = batch["pixel_values"]
+        y = batch["segmap"]
+        y = self.preprocess_input(y, 34)
         if len(x.shape) == 3:
             x = x[..., None]
-        x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
-        return x.float()
+        #x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
+        return x.float(), y.float()
 
-    def training_step(self, batch, batch_idx, optimizer_idx):
-        breakpoint()
-        x = self.get_input(batch, self.image_key)
-        xrec, qloss = self(x)
+    def training_step(self, batch, batch_idx):
+        x, y = self.get_input(batch, self.image_key)
+        xrec, qloss = self(x, y)
+        opt_ae, opt_disc = self.optimizers()
 
-        if optimizer_idx == 0:
-            # autoencode
-            aeloss, log_dict_ae = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
-                                            last_layer=self.get_last_layer(), split="train")
+        # autoencode
+        aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
+                                        last_layer=self.get_last_layer(), split="train")
 
-            self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
-            self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
-            return aeloss
+        self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+        #self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+        opt_ae.zero_grad()
+        self.manual_backward(aeloss)
+        opt_ae.step()
+        #return aeloss
 
-        if optimizer_idx == 1:
-            # discriminator
-            discloss, log_dict_disc = self.loss(qloss, x, xrec, optimizer_idx, self.global_step,
-                                            last_layer=self.get_last_layer(), split="train")
-            self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
-            self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
-            return discloss
+        # discriminator
+        discloss, log_dict_disc = self.loss(qloss, x, xrec, 1, self.global_step,
+                                        last_layer=self.get_last_layer(), split="train")
+        self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+        #self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+
+        opt_disc.zero_grad()
+        self.manual_backward(discloss)
+        opt_disc.step()
+
+        #return discloss
 
     def validation_step(self, batch, batch_idx):
-        x = self.get_input(batch, self.image_key)
-        xrec, qloss = self(x)
+        x, y = self.get_input(batch, self.image_key)
+        xrec, qloss = self(x, y)
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
                                             last_layer=self.get_last_layer(), split="val")
 
@@ -91,8 +100,8 @@ class VQModel(pl.LightningModule):
                    prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
         self.log("val/aeloss", aeloss,
                    prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
-        self.log_dict(log_dict_ae)
-        self.log_dict(log_dict_disc)
+        #self.log_dict(log_dict_ae)
+        # self.log_dict(log_dict_disc)
         return self.log_dict
 
     def configure_optimizers(self):
@@ -127,3 +136,29 @@ class VQModel(pl.LightningModule):
         x = F.conv2d(x, weight=self.colorize)
         x = 2.*(x-x.min())/(x.max()-x.min()) - 1.
         return x
+
+    def preprocess_input(self, data, num_classes):
+        # move to GPU and change data types
+        data['label'] = data['label'].long()
+
+        # create one-hot label map
+        label_map = data['label']
+        bs, _, h, w = label_map.size()
+        input_label = torch.FloatTensor(bs, num_classes, h, w).zero_().to(data['label'].device)
+        input_semantics = input_label.scatter_(1, label_map, 1.0)
+
+        # concatenate instance map if it exists
+        if 'instance' in data:
+            inst_map = data['instance']
+            instance_edge_map = self.get_edges(inst_map)
+            input_semantics = torch.cat((input_semantics, instance_edge_map), dim=1)
+
+        return input_semantics
+
+    def get_edges(self, t):
+        edge = torch.ByteTensor(t.size()).zero_().to(t.device)
+        edge[:, :, :, 1:] = edge[:, :, :, 1:] | (t[:, :, :, 1:] != t[:, :, :, :-1])
+        edge[:, :, :, :-1] = edge[:, :, :, :-1] | (t[:, :, :, 1:] != t[:, :, :, :-1])
+        edge[:, :, 1:, :] = edge[:, :, 1:, :] | (t[:, :, 1:, :] != t[:, :, :-1, :])
+        edge[:, :, :-1, :] = edge[:, :, :-1, :] | (t[:, :, 1:, :] != t[:, :, :-1, :])
+        return edge.float()

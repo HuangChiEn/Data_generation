@@ -78,6 +78,17 @@ def discretized_gaussian_log_likelihood(x, *, means, log_scales):
 
 def get_variance(noise_scheduler):
     alphas_cumprod_prev = th.cat([th.tensor([1.0]), noise_scheduler.alphas_cumprod[:-1]])
+
+    posterior_mean_coef1 = (
+            noise_scheduler.betas * th.sqrt(alphas_cumprod_prev) / (1.0 - noise_scheduler.alphas_cumprod)
+    )
+
+    posterior_mean_coef2 = (
+            (1.0 - alphas_cumprod_prev)
+            * th.sqrt(noise_scheduler.alphas)
+            / (1.0 - noise_scheduler.alphas_cumprod)
+    )
+
     posterior_variance = (
             noise_scheduler.betas * (1.0 - alphas_cumprod_prev) / (1.0 - noise_scheduler.alphas_cumprod)
     )
@@ -85,4 +96,4 @@ def get_variance(noise_scheduler):
         th.cat([posterior_variance[1][..., None], posterior_variance[1:]])
     )
     #res = posterior_log_variance_clipped.to(device=timesteps.device)[timesteps].float()
-    return posterior_log_variance_clipped #res[..., None, None, None]
+    return posterior_mean_coef1, posterior_mean_coef2, posterior_log_variance_clipped #res[..., None, None, None]

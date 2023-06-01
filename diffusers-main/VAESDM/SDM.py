@@ -184,7 +184,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="learn_var_sdm-model",
+        default="learn_var_dfsc_sdm-model",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
@@ -490,8 +490,9 @@ def main():
             ).repo_id
 
     # Load scheduler and models.
-    noise_scheduler = DDPMScheduler.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="scheduler")
-    noise_scheduler.variance_type="learned"
+    #noise_scheduler = DDPMScheduler.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="scheduler")
+    noise_scheduler = DDPMScheduler()
+    noise_scheduler.variance_type="learned_range"
     #vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae", revision=args.revision)
     # Freeze vae
     #vae.requires_grad_(False)
@@ -847,7 +848,7 @@ def main():
     progress_bar = tqdm(range(global_step, args.max_train_steps), disable=not accelerator.is_local_main_process)
     progress_bar.set_description("Steps")
 
-    posterior_log_variance_clipped = get_variance(noise_scheduler)
+    posterior_mean_coef1, posterior_mean_coef2, posterior_log_variance_clipped = get_variance(noise_scheduler)
 
     for epoch in range(first_epoch, args.num_train_epochs):
         unet.train()
@@ -907,8 +908,13 @@ def main():
 
                         true_log_variance_clipped = posterior_log_variance_clipped.to(device=timesteps.device)[timesteps].float()[..., None, None, None]
 
+                        true_posterior_mean = (
+                                posterior_mean_coef1.to(device=timesteps.device)[timesteps].float()[..., None, None, None] * latents
+                                + posterior_mean_coef2.to(device=timesteps.device)[timesteps].float()[..., None, None, None] * noisy_latents
+                        )
+
                         kl = normal_kl(
-                            target, true_log_variance_clipped, model_pred_mean, model_pred_var
+                            true_posterior_mean, true_log_variance_clipped, model_pred_mean, model_pred_var
                         )
                         kl = kl.mean() / np.log(2.0)
 
@@ -921,6 +927,9 @@ def main():
                         # At the first timestep return the decoder NLL,
                         # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
                         kl_loss = torch.where((timesteps == 0), decoder_nll, kl).mean()
+
+                        kl_loss = kl_loss / noise_scheduler.num_train_timesteps
+
                         loss += kl_loss
                 else:
                     # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
