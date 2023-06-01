@@ -31,6 +31,6 @@ data:
     data_dir: /data1/dataset/Cityscapes
     image_size: 540
     batch_size: 6
-    num_workers: 0
+    num_workers: 8
 
     

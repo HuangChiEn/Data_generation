@@ -1,0 +1,82 @@
+/usr/local/lib/python3.8/dist-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/usr/local/lib/python3.8/dist-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=VGG16_Weights.IMAGENET1K_V1`. You can also use `weights=VGG16_Weights.DEFAULT` to get the most up-to-date weights.
+  warnings.warn(msg)
+loaded pretrained LPIPS loss from taming/modules/autoencoder/lpips/vgg.pth
+VQLPIPSWithDiscriminator running with hinge loss.
+Sanity Checking: 0it [00:00, ?it/s]
+/usr/local/lib/python3.8/dist-packages/lightning_fabric/connector.py:562: UserWarning: 16 is supported for historical reasons but its usage is discouraged. Please set your precision to 16-mixed instead!
+  rank_zero_warn(
+Using 16bit Automatic Mixed Precision (AMP)
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+IPU available: False, using: 0 IPUs
+HPU available: False, using: 0 HPUs
+/usr/local/lib/python3.8/dist-packages/pytorch_lightning/loops/utilities.py:70: PossibleUserWarning: `max_epochs` was not set. Setting it to 1000 epochs. To train without an epoch limit, set `max_epochs=-1`.
+  rank_zero_warn(
+You are using a CUDA device ('NVIDIA A100-SXM4-80GB') that has Tensor Cores. To properly utilize them, you should set `torch.set_float32_matmul_precision('medium' | 'high')` which will trade-off precision for performance. For more details, read https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+  | Name  | Type                     | Params
+---------------------------------------------------
+0 | loss  | VQLPIPSWithDiscriminator | 17.5 M
+1 | vqvae | VQSub                    | 74.2 M
+---------------------------------------------------
+77.0 M    Trainable params
+14.7 M    Non-trainable params
+91.7 M    Total params
+
+Sanity Checking DataLoader 0:   0%|                                              | 0/2 [00:00<?, ?it/s]dict_keys(['pixel_values', 'segmap', 'filename'])
+/usr/local/lib/python3.8/dist-packages/torch/utils/checkpoint.py:31: UserWarning: None of the inputs have requires_grad=True. Gradients will be None
+  warnings.warn("None of the inputs have requires_grad=True. Gradients will be None")
+/usr/local/lib/python3.8/dist-packages/pytorch_lightning/utilities/data.py:77: UserWarning: Trying to infer the `batch_size` from an ambiguous collection. The batch size we found is 6. To avoid any miscalculations, use `self.log(..., batch_size=batch_size)`.
+  warning_cache.warn(
+Sanity Checking DataLoader 0:  50%|███████████████████                   | 1/2 [00:01<00:01,  1.90s/it]dict_keys(['pixel_values', 'segmap', 'filename'])
+Epoch 0:   0%|                                                                 | 0/496 [00:00<?, ?it/s]dict_keys(['pixel_values', 'segmap', 'filename'])
+> /data/joseph/Data_generation/diffusers-main/VQVAE/taming/models/vqgan.py(69)training_step()
+-> aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
+Epoch 0:   0%| | 1/496 [00:07<1:03:04,  7.65s/it, v_num=7vnu, train/aeloss_step=1.620, train/discloss_sdict_keys(['pixel_values', 'segmap', 'filename'])
+> /data/joseph/Data_generation/diffusers-main/VQVAE/taming/models/vqgan.py(69)training_step()
+-> aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
+Epoch 0:   0%| | 2/496 [00:12<52:01,  6.32s/it, v_num=7vnu, train/aeloss_step=2.030, train/discloss_stedict_keys(['pixel_values', 'segmap', 'filename'])
+> /data/joseph/Data_generation/diffusers-main/VQVAE/taming/models/vqgan.py(69)training_step()
+-> aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
+Traceback (most recent call last):
+  File "main.py", line 354, in <module>
+    main()
+  File "main.py", line 351, in main
+    trainer.fit(model, train_loader, val_loader)
+  File "/usr/local/lib/python3.8/dist-packages/pytorch_lightning/trainer/trainer.py", line 520, in fit
+    call._call_and_handle_interrupt(
+  File "/usr/local/lib/python3.8/dist-packages/pytorch_lightning/trainer/call.py", line 44, in _call_and_handle_interrupt
+    return trainer_fn(*args, **kwargs)
+  File "/usr/local/lib/python3.8/dist-packages/pytorch_lightning/trainer/trainer.py", line 559, in _fit_impl
+    self._run(model, ckpt_path=ckpt_path)
+  File "/usr/local/lib/python3.8/dist-packages/pytorch_lightning/trainer/trainer.py", line 935, in _run
+    results = self._run_stage()
+  File "/usr/local/lib/python3.8/dist-packages/pytorch_lightning/trainer/trainer.py", line 978, in _run_stage
+    self.fit_loop.run()
+  File "/usr/local/lib/python3.8/dist-packages/pytorch_lightning/loops/fit_loop.py", line 201, in run
+    self.advance()
+  File "/usr/local/lib/python3.8/dist-packages/pytorch_lightning/loops/fit_loop.py", line 354, in advance
+    self.epoch_loop.run(self._data_fetcher)
+  File "/usr/local/lib/python3.8/dist-packages/pytorch_lightning/loops/training_epoch_loop.py", line 133, in run
+    self.advance(data_fetcher)
+  File "/usr/local/lib/python3.8/dist-packages/pytorch_lightning/loops/training_epoch_loop.py", line 220, in advance
+    batch_output = self.manual_optimization.run(kwargs)
+  File "/usr/local/lib/python3.8/dist-packages/pytorch_lightning/loops/optimization/manual.py", line 90, in run
+    self.advance(kwargs)
+  File "/usr/local/lib/python3.8/dist-packages/pytorch_lightning/loops/optimization/manual.py", line 109, in advance
+    training_step_output = call._call_strategy_hook(trainer, "training_step", *kwargs.values())
+  File "/usr/local/lib/python3.8/dist-packages/pytorch_lightning/trainer/call.py", line 288, in _call_strategy_hook
+    output = fn(*args, **kwargs)
+  File "/usr/local/lib/python3.8/dist-packages/pytorch_lightning/strategies/strategy.py", line 366, in training_step
+    return self.model.training_step(*args, **kwargs)
+  File "/data/joseph/Data_generation/diffusers-main/VQVAE/taming/models/vqgan.py", line 69, in training_step
+    aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
+  File "/data/joseph/Data_generation/diffusers-main/VQVAE/taming/models/vqgan.py", line 69, in training_step
+    aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
+  File "/usr/lib/python3.8/bdb.py", line 88, in trace_dispatch
+    return self.dispatch_line(frame)
+  File "/usr/lib/python3.8/bdb.py", line 113, in dispatch_line
+    if self.quitting: raise BdbQuit
+bdb.BdbQuit

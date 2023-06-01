@@ -86,7 +86,8 @@ class VQLPIPSWithDiscriminator(nn.Module):
         nll_loss = rec_loss
         #nll_loss = torch.sum(nll_loss) / nll_loss.shape[0]
         nll_loss = torch.mean(nll_loss)
-
+        
+        breakpoint()
         # now the GAN part
         if optimizer_idx == 0:
             # generator update
