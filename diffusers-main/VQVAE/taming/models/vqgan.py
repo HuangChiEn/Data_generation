@@ -4,7 +4,7 @@ import pytorch_lightning as pl
 from taming.models.vqvae import VQSub
 
 from main import instantiate_from_config
-
+import os
 class VQModel(pl.LightningModule):
     def __init__(self,
                  ddconfig,
@@ -25,7 +25,7 @@ class VQModel(pl.LightningModule):
         self.vqvae = VQSub(**ddconfig)
         self.automatic_optimization = False
         self.frequency = 1
-
+        self.frequency = 1
         if ckpt_path is not None:
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
         self.image_key = image_key
@@ -51,7 +51,6 @@ class VQModel(pl.LightningModule):
         return dec, diff
 
     def get_input(self, batch, k):
-        print(batch.keys())
         x = batch["pixel_values"]
         y = batch["segmap"]
         y = self.preprocess_input(y, 34)
@@ -174,3 +173,15 @@ class VQModel(pl.LightningModule):
         epoch = trainer.current_epoch  # type: ignore
         if epoch % self.frequency == 0:
             self.vqvae.save_pretrained(os.path.join("./", "vqvae"))
+
+
+    def on_train_epoch_end(self):
+        """Tries to save current checkpoint at the end of each train epoch.
+
+        Args:
+            trainer (pl.Trainer): pytorch lightning trainer object.
+        """
+
+        epoch = self.current_epoch  # type: ignore
+        if epoch % self.frequency == 0:
+            self.vqvae.save_pretrained(os.path.join(f"./VQ_model/{epoch}ep", "vqvae"))
