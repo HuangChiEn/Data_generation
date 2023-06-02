@@ -7,6 +7,7 @@ import torch.nn as nn
 from typing import Tuple, Optional
 
 class VQSub(ModelMixin, ConfigMixin):
+    
     @register_to_config
     def __init__(
         self,
@@ -27,6 +28,7 @@ class VQSub(ModelMixin, ConfigMixin):
         use_SPADE: bool = True
     ):
         super().__init__()
+        breakpoint()
         # pass init params to Encoder
         self.encoder = Encoder(
             in_channels=in_channels,
