@@ -22,7 +22,7 @@ model:
       params:
         disc_conditional: False
         disc_in_channels: 3
-        disc_start: 1 # 6251 # 250001
+        disc_start: 6251
         disc_weight: 0.6
         codebook_weight: 1.0
 
@@ -31,6 +31,6 @@ data:
     data_dir: /data1/dataset/Cityscapes
     image_size: 540
     batch_size: 6
-    num_workers: 4
+    num_workers: 8
 
     

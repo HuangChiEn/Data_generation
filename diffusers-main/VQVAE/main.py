@@ -335,7 +335,7 @@ def main():
         subset_type='train',
         ret_dataset=False,
         data_ld_kwargs={'batch_size': 6, 'num_workers': 8}
-    )["train"]
+    )
 
     val_loader = cityscape_ds.load_data(
         data_dir=config.data.params.data_dir,
@@ -343,11 +343,11 @@ def main():
         subset_type='val',
         ret_dataset=False,
         data_ld_kwargs={'batch_size': 6, 'num_workers': 8}
-    )["val"]
+    )
 
     model = instantiate_from_config(config.model)
 
-    trainer = pl.Trainer(devices=1, precision=16, logger=wandb_logger)#strategy=DDPStrategy(find_unused_parameters=True)
+    trainer = pl.Trainer(devices=1, precision=16, logger=wandb_logger, max_epochs=300)#strategy=DDPStrategy(find_unused_parameters=True)
     trainer.fit(model, train_loader, val_loader)
 
 if __name__ == "__main__":
