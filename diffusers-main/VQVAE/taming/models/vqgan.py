@@ -2,9 +2,11 @@ import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
 from taming.models.vqvae import VQSub
+from omegaconf import OmegaConf
 
 from main import instantiate_from_config
 import os
+
 class VQModel(pl.LightningModule):
     def __init__(self,
                  ddconfig,
@@ -22,6 +24,9 @@ class VQModel(pl.LightningModule):
         super().__init__()
         self.learning_rate = 1e-4
         self.loss = instantiate_from_config(lossconfig)
+        # convert omegaconf to python serilizeable obj
+        ddconfig = OmegaConf.to_object(ddconfig)
+        
         self.vqvae = VQSub(**ddconfig)
         self.automatic_optimization = False
         self.frequency = 1
@@ -68,24 +73,21 @@ class VQModel(pl.LightningModule):
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
                                         last_layer=self.get_last_layer(), split="train")
 
-        self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
-        #self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+        #self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+        self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
         opt_ae.zero_grad()
         self.manual_backward(aeloss)
         opt_ae.step()
-        #return aeloss
-
+        
         # discriminator
         discloss, log_dict_disc = self.loss(qloss, x, xrec, 1, self.global_step,
                                         last_layer=self.get_last_layer(), split="train")
-        self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
-        #self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+        #self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+        self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
 
         opt_disc.zero_grad()
         self.manual_backward(discloss)
         opt_disc.step()
-
-        #return discloss
 
     def validation_step(self, batch, batch_idx):
         x, y = self.get_input(batch, self.image_key)

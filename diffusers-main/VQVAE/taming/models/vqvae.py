@@ -28,7 +28,7 @@ class VQSub(ModelMixin, ConfigMixin):
         use_SPADE: bool = True
     ):
         super().__init__()
-        breakpoint()
+        
         # pass init params to Encoder
         self.encoder = Encoder(
             in_channels=in_channels,
