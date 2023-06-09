@@ -327,7 +327,7 @@ def main():
     config = OmegaConf.merge(*configs, cli)
 
     from pytorch_lightning.loggers import WandbLogger
-    wandb_logger = WandbLogger()
+    wandb_logger = WandbLogger(name="CatSegmap VQModel")
 
     train_loader = cityscape_ds.load_data(
         data_dir=config.data.params.data_dir,
@@ -345,10 +345,11 @@ def main():
         data_ld_kwargs={'batch_size': 6, 'num_workers': 8}
     )
 
+
     model = instantiate_from_config(config.model)
 
-    trainer = pl.Trainer(devices=1, precision=16, logger=wandb_logger, max_epochs=300)#strategy=DDPStrategy(find_unused_parameters=True)
-    trainer.fit(model, train_loader, val_loader)
+    trainer = pl.Trainer(devices=1, precision=16, logger=wandb_logger, max_epochs=100)#strategy=DDPStrategy(find_unused_parameters=True)
+    trainer.fit(model, train_loader, val_loader)#, ckpt_path="/data/harry/Data_generation/diffusers-main/VQVAE/lightning_logs/hm2zmxps/checkpoints/epoch=58-step=58528.ckpt")
 
 if __name__ == "__main__":
     main()

@@ -53,6 +53,7 @@ from model.unet import UNetModel
 if is_wandb_available():
     import wandb
 
+from taming.models.vqvae import VQSub
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.16.0.dev0")
@@ -64,7 +65,7 @@ DATASET_NAME_MAPPING = {
 }
 
 
-def log_validation(vae, unet, noise_scheduler, args, accelerator, weight_dtype, epoch):
+def log_validation(vae, unet, noise_scheduler, args, accelerator, weight_dtype, epoch, data_ld):
     logger.info("Running validation... ")
 
     # pipeline = StableDiffusionPipeline.from_pretrained(
@@ -76,8 +77,8 @@ def log_validation(vae, unet, noise_scheduler, args, accelerator, weight_dtype, 
     #     torch_dtype=weight_dtype,
     # )
     pipeline = SDMLDMPipeline(
-        vae=vae,
-        unet=unet,
+        vae=accelerator.unwrap_model(vae),
+        unet=accelerator.unwrap_model(unet),
         scheduler=noise_scheduler,
         torch_dtype=weight_dtype,
     )
@@ -94,11 +95,21 @@ def log_validation(vae, unet, noise_scheduler, args, accelerator, weight_dtype, 
         generator = torch.Generator(device=accelerator.device).manual_seed(args.seed)
 
     images = []
-    for i in range(len(args.validation_prompts)):
+    segmap_clrs = []
+    for i ,batch in enumerate(data_ld):
+        if i > 0:
+            break
         with torch.autocast("cuda"):
-            image = pipeline(args.validation_prompts[i], num_inference_steps=20, generator=generator).images[0]
+            segmap = preprocess_input(batch["segmap"], num_classes=34)
+            segmap = segmap.to("cuda").to(torch.float16)
+            segmap_clr = batch["segmap"]['clr_instance'][0].permute(0, 3, 1, 2) / 255.
+            image = pipeline(segmap=segmap[0][None,:], generator=generator,batch_size = 1, num_inference_steps=50, s=1.5).images
+            #print(image)
+            #image = pipeline(args.validation_prompts[i], num_inference_steps=50, generator=generator).images[0]
 
-        images.append(image)
+        images.extend(image)
+        segmap_clrs.extend(segmap_clr)
+
 
     for tracker in accelerator.trackers:
         if tracker.name == "tensorboard":
@@ -107,9 +118,13 @@ def log_validation(vae, unet, noise_scheduler, args, accelerator, weight_dtype, 
         elif tracker.name == "wandb":
             tracker.log(
                 {
-                    "validation": [
-                        wandb.Image(image, caption=f"{i}: {args.validation_prompts[i]}")
+                    "validation_image": [
+                        wandb.Image(image, caption=f"{i}")
                         for i, image in enumerate(images)
+                    ],
+                    "validation_mask": [
+                        wandb.Image(mask, caption=f"{i}")
+                        for i, mask in enumerate(segmap_clrs)
                     ]
                 }
             )
@@ -118,7 +133,6 @@ def log_validation(vae, unet, noise_scheduler, args, accelerator, weight_dtype, 
 
     del pipeline
     torch.cuda.empty_cache()
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Simple example of a training script.")
@@ -199,13 +213,13 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="Test",
+        default="testourVQVAE-SDM-SPADEtest",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
         "--cache_dir",
         type=str,
-        default="/data/harry/Cityscape_catch/VQVAE_540_resize",
+        default="/data/harry/Cityscape_catch/our_VQVAE_540_resize",
         help="The directory where the downloaded models and datasets will be stored.",
     )
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
@@ -309,7 +323,7 @@ def parse_args():
     parser.add_argument(
         "--dataloader_num_workers",
         type=int,
-        default=8,
+        default=16,
         help=(
             "Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process."
         ),
@@ -350,7 +364,7 @@ def parse_args():
     parser.add_argument(
         "--report_to",
         type=str,
-        default="tensorboard",
+        default="wandb",
         help=(
             'The integration to report the results and logs to. Supported platforms are `"tensorboard"`'
             ' (default), `"wandb"` and `"comet_ml"`. Use `"all"` to report to all integrations.'
@@ -360,7 +374,7 @@ def parse_args():
     parser.add_argument(
         "--checkpointing_steps",
         type=int,
-        default=2000,
+        default=1000,
         help=(
             "Save a checkpoint of the training state every X updates. These checkpoints are only suitable for resuming"
             " training using `--resume_from_checkpoint`."
@@ -392,7 +406,7 @@ def parse_args():
     parser.add_argument(
         "--validation_epochs",
         type=int,
-        default=50,
+        default=5,
         help="Run validation every X epochs.",
     )
     parser.add_argument(
@@ -508,7 +522,8 @@ def main():
     noise_scheduler = DDPMScheduler.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="scheduler")
 
     #vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae", revision=args.revision)
-    vae = VQModel.from_pretrained("CompVis/ldm-super-resolution-4x-openimages", subfolder="vqvae", revision=args.revision)
+    #vae = VQModel.from_pretrained("CompVis/ldm-super-resolution-4x-openimages", subfolder="vqvae", revision=args.revision)
+    vae = VQSub.from_pretrained("/data/harry/Data_generation/diffusers-main/VQVAE/VQ_model/70ep", subfolder="vqvae")
     # Freeze vae
     vae.requires_grad_(False)
 
@@ -543,7 +558,7 @@ def main():
 
 
     unet = UNetModel(
-        image_size= laten_size,
+        image_size = laten_size,
         in_channels=vae.config.latent_channels,
         model_channels=128,
         out_channels=vae.config.latent_channels,
@@ -570,7 +585,7 @@ def main():
             use_ema_warmup=True,
             inv_gamma=args.ema_inv_gamma,
             power=args.ema_power,
-            model_cls=SDMUNet2DModel,
+            model_cls=UNetModel,
             model_config=unet.config,
         )
 
@@ -698,6 +713,12 @@ def main():
         cache_dir=args.cache_dir
     )
 
+    val_dataset = load_data(
+        data_dir=args.train_data_dir,
+        resize_size=args.resolution,
+        subset_type="val"
+    )
+
     def collate_fn(examples):
         segmap = {}
         for k in examples[0]["label"].keys():
@@ -719,6 +740,13 @@ def main():
         num_workers=args.dataloader_num_workers,
     )
 
+    val_dataloader = torch.utils.data.DataLoader(
+        val_dataset,
+        shuffle=False,
+        collate_fn=collate_fn,
+        batch_size=args.train_batch_size,
+        #num_workers=args.dataloader_num_workers,
+    )
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -823,10 +851,10 @@ def main():
                 if not args.cache_dir:
                     latents = vae.encode(batch["pixel_values"].to(weight_dtype)).latents #.latent_dist.sample()
                     latents = latents * vae.config.scaling_factor
-                    print("vae_encode")
                 else:
                     latents = batch["pixel_values"].to(weight_dtype)
-                segmap = preprocess_input(batch["segmap"], args.segmap_channels)
+
+                segmap = preprocess_input(batch["segmap"], args.segmap_channels) if "segmap" not in batch["segmap"].keys() else batch["segmap"]["segmap"]
                 #print(latents.shape, segmap.shape)
 
                 # Sample noise that we'll add to the latents
@@ -907,7 +935,7 @@ def main():
                 break
 
         if accelerator.is_main_process:
-            if args.validation_prompts is not None and epoch % args.validation_epochs == 0:
+            if epoch % args.validation_epochs == 0:
                 if args.use_ema:
                     # Store the UNet parameters temporarily and load the EMA parameters to perform inference.
                     ema_unet.store(unet.parameters())
@@ -920,6 +948,7 @@ def main():
                     accelerator,
                     weight_dtype,
                     global_step,
+                    val_dataloader,
                 )
                 if args.use_ema:
                     # Switch back to the original UNet parameters.
@@ -952,4 +981,6 @@ def main():
 
 
 if __name__ == "__main__":
+    # import torch.multiprocessing as mp
+    # mp.set_start_method("spawn")
     main()

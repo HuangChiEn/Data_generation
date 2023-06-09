@@ -649,7 +649,7 @@ class UNetModel(ModelMixin, ConfigMixin):
         self.num_heads_upsample = num_heads_upsample
 
         self.mask_emb = mask_emb
-        
+
         time_embed_dim = model_channels * 4
         self.time_embed = nn.Sequential(
             linear(model_channels, time_embed_dim),
@@ -824,7 +824,6 @@ class UNetModel(ModelMixin, ConfigMixin):
 
         timesteps = timestep_embedding(timesteps, self.model_channels).type(x.dtype).to(x.device)
         emb = self.time_embed(timesteps)
-
 
         y = y.type(self.dtype)
         h = x.type(self.dtype)

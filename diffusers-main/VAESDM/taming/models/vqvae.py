@@ -6,29 +6,30 @@ import torch.nn as nn
 
 from typing import Tuple, Optional
 
+
 class VQSub(ModelMixin, ConfigMixin):
-    
+
     @register_to_config
     def __init__(
-        self,
-        in_channels: int = 3,
-        out_channels: int = 3,
-        down_block_types: Tuple[str] = ("DownEncoderBlock2D",),
-        up_block_types: Tuple[str] = ("SDMUpDecoderBlock2D",),
-        block_out_channels: Tuple[int] = (64,),
-        layers_per_block: int = 1,
-        act_fn: str = "silu",
-        latent_channels: int = 3,
-        sample_size: int = 32,
-        num_vq_embeddings: int = 256,
-        norm_num_groups: int = 32,
-        vq_embed_dim: Optional[int] = None,
-        scaling_factor: float = 0.18215,
-        segmap_channels: int = 35,
-        use_SPADE: bool = True
+            self,
+            in_channels: int = 3,
+            out_channels: int = 3,
+            down_block_types: Tuple[str] = ("DownEncoderBlock2D",),
+            up_block_types: Tuple[str] = ("SDMUpDecoderBlock2D",),
+            block_out_channels: Tuple[int] = (64,),
+            layers_per_block: int = 1,
+            act_fn: str = "silu",
+            latent_channels: int = 3,
+            sample_size: int = 32,
+            num_vq_embeddings: int = 256,
+            norm_num_groups: int = 32,
+            vq_embed_dim: Optional[int] = None,
+            scaling_factor: float = 0.18215,
+            segmap_channels: int = 35,
+            use_SPADE: bool = True
     ):
         super().__init__()
-        
+
         # pass init params to Encoder
         self.encoder = Encoder(
             in_channels=in_channels,
@@ -55,13 +56,13 @@ class VQSub(ModelMixin, ConfigMixin):
             block_out_channels=block_out_channels,
             layers_per_block=layers_per_block,
             act_fn=act_fn,
-            norm_num_groups=norm_num_groups,            # extend decoder spatial capability..
+            norm_num_groups=norm_num_groups,  # extend decoder spatial capability..
             segmap_channels=segmap_channels,
             use_SPADE=use_SPADE
         )
 
-#------------------------------------------------------------------------------
-## Main part..
+    # ------------------------------------------------------------------------------
+    ## Main part..
     def encode(self, x):
         h = self.encoder(x)
         h = self.quant_conv(h)
@@ -74,7 +75,7 @@ class VQSub(ModelMixin, ConfigMixin):
         return dec
 
     def decode_code(self, code_b, segmap):
-        quant_b, _, _ = self.quantize(code_b)
+        quant_b = self.quantize.get_codebook_entry(code_b, code_b.shape)
         dec = self.decode(quant_b, segmap)
         return dec
 

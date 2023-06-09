@@ -3378,6 +3378,7 @@ class SDMResnetBlock2D(ResnetBlock2D):
         self.SPADE_norm2 = SPADEGroupNorm(out_channels, segmap_channels)
 
     def forward(self, input_tensor, segmap, temb):
+
         return torch.utils.checkpoint.checkpoint(self._forward, input_tensor, segmap, temb)
     def _forward(self, input_tensor, segmap, temb):
         assert segmap is not None, "input segmap is None"
