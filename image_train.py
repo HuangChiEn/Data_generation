@@ -31,6 +31,7 @@ def main():
     model.to(dist_util.dev())
     if vae is not None:
         vae.to(dist_util.dev())
+
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
 
     logger.log("creating data loader...")
@@ -99,31 +100,31 @@ def create_argparser():
 
 
 if __name__ == "__main__":
-    #main()
-    if __name__ == "__main__":
-        path = 'output.txt'
-        f = open(path, 'w')
-
-        unet = UNetModel(
-            image_size=270,
-            in_channels=3,
-            model_channels=256,
-            out_channels=3,
-            num_res_blocks=2,
-            attention_resolutions=(8, 16, 32),
-            dropout=False,
-            channel_mult=(1, 1, 2, 4, 4),
-            num_classes=34,
-            use_checkpoint=True,
-            use_fp16=True,
-            num_heads=8,
-            num_head_channels=-1,
-            num_heads_upsample=-1,
-            use_scale_shift_norm=False,
-            resblock_updown=False,
-            use_new_attention_order=False,
-            mask_emb="resize"
-        )
-
-        print(unet, file=f)
-        f.close()
+    main()
+    # if __name__ == "__main__":
+    #     path = 'output.txt'
+    #     f = open(path, 'w')
+    #
+    #     unet = UNetModel(
+    #         image_size=270,
+    #         in_channels=3,
+    #         model_channels=256,
+    #         out_channels=3,
+    #         num_res_blocks=2,
+    #         attention_resolutions=(8, 16, 32),
+    #         dropout=False,
+    #         channel_mult=(1, 1, 2, 4, 4),
+    #         num_classes=34,
+    #         use_checkpoint=True,
+    #         use_fp16=True,
+    #         num_heads=8,
+    #         num_head_channels=-1,
+    #         num_heads_upsample=-1,
+    #         use_scale_shift_norm=False,
+    #         resblock_updown=False,
+    #         use_new_attention_order=False,
+    #         mask_emb="resize"
+    #     )
+    #
+    #     print(unet, file=f)
+    #     f.close()

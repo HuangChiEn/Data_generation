@@ -20,8 +20,8 @@ model:
     lossconfig:
       target: taming.modules.losses.vqperceptual.VQLPIPSWithDiscriminator
       params:
-        disc_conditional: False
-        disc_in_channels: 3
+        disc_conditional: True
+        disc_in_channels: 38     # because we add 34 + 1 (edge info)
         disc_start: 6251
         disc_weight: 0.6
         codebook_weight: 1.0

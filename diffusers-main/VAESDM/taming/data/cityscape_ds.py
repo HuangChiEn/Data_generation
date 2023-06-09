@@ -174,7 +174,7 @@ class Cityscape_cache(Dataset):
             x = x * Cityscape_cache.VAE_SCALE
         else:
             x = vae_cache['x']
-            print(x.shape)
+        
         return {"pixel_values": x, "label": vae_cache['label']}
 
     def __len__(self):

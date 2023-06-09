@@ -71,7 +71,7 @@ class VQModel(pl.LightningModule):
 
         # autoencode
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
-                                        last_layer=self.get_last_layer(), cond=y, split="train")
+                                        last_layer=self.get_last_layer(), split="train")
 
         #self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
         self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
@@ -81,7 +81,7 @@ class VQModel(pl.LightningModule):
         
         # discriminator
         discloss, log_dict_disc = self.loss(qloss, x, xrec, 1, self.global_step,
-                                        last_layer=self.get_last_layer(), cond=y, split="train")
+                                        last_layer=self.get_last_layer(), split="train")
         #self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
         self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
 
@@ -92,11 +92,14 @@ class VQModel(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = self.get_input(batch, self.image_key)
         xrec, qloss = self(x, y)
+        true_image = torch.einsum('nchw->nhwc', x).detach().cpu().numpy()[0] * 255
+        pred = torch.einsum('nchw->nhwc', xrec).detach().cpu().numpy()[0] * 255
+        image_output = np.hstack([true_image, pred])
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
-                                            last_layer=self.get_last_layer(), cond=y, split="val")
+                                            last_layer=self.get_last_layer(), split="val")
 
         discloss, log_dict_disc = self.loss(qloss, x, xrec, 1, self.global_step,
-                                            last_layer=self.get_last_layer(), cond=y, split="val")
+                                            last_layer=self.get_last_layer(), split="val")
         rec_loss = log_dict_ae["val/rec_loss"]
         # self.log("val/rec_loss", rec_loss,
         #            prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
@@ -133,7 +136,7 @@ class VQModel(pl.LightningModule):
         return log
 
     def to_rgb(self, x):
-        #assert self.image_key == "segmentation"
+        assert self.image_key == "segmentation"
         if not hasattr(self, "colorize"):
             self.register_buffer("colorize", torch.randn(3, x.shape[1], 1, 1).to(x))
         x = F.conv2d(x, weight=self.colorize)
@@ -173,7 +176,6 @@ class VQModel(pl.LightningModule):
             trainer (pl.Trainer): pytorch lightning trainer object.
         """
 
-        epoch = self.current_epoch # type: ignore
+        epoch = self.current_epoch  # type: ignore
         if epoch % self.frequency == 0:
-            #self.log_images()
-            self.vqvae.save_pretrained(os.path.join(f"./Segmap_VQ_model/{epoch}ep", "vqvae"))
+            self.vqvae.save_pretrained(os.path.join(f"./VQ_model/{epoch}ep", "vqvae"))

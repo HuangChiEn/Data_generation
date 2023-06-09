@@ -12,6 +12,7 @@ from PIL import Image
 
 import torch
 from torch.utils.data import DataLoader, Dataset
+import random
 
 # import guard, we only expose the following functions!!
 __all__ = ['load_data', 'collate_fn'] 
@@ -173,9 +174,16 @@ class Cityscape_cache(Dataset):
             sample = torch.cuda.FloatTensor(**mean.shape).normal_(mean=0, std=1)
             x = mean + std * sample
             x = x * Cityscape_cache.VAE_SCALE
+        elif isinstance(vae_cache['x'], list):
+            ret = random.randint(0, len(vae_cache['x'])-1)
+            x = vae_cache['x'][ret] * Cityscape_cache.VAE_SCALE
+            #print("b", len(vae_cache['label']["segmap"]))
+            vae_cache['label']["segmap"] = vae_cache['label']["segmap"][ret]
+            #print("a",vae_cache['label']["segmap"].shape)
         else:
-            x = vae_cache['x']
-        
+            #print("error")
+            x = vae_cache['x'] * Cityscape_cache.VAE_SCALE
+
         return {"pixel_values": x, "label": vae_cache['label']}
 
     def __len__(self):
@@ -184,12 +192,22 @@ class Cityscape_cache(Dataset):
 # default collate function
 def collate_fn(examples):
     segmap = {}
+    ret = random.randint(0, 1)
     for k in examples[0]["label"].keys():
         if k != 'path':
-            segmap[k] = torch.stack([torch.from_numpy(example["label"][k]) for example in examples])
-            segmap[k] = segmap[k].to(memory_format=torch.contiguous_format).float()    
+            if isinstance(examples[0]["label"][k], list):
+                print(ret)
+                segmap[k] = torch.stack([torch.from_numpy(example["label"][k][ret]) for example in examples])
+            else:
+                segmap[k] = torch.stack([torch.from_numpy(example["label"][k]) for example in examples])
+            segmap[k] = segmap[k].to(memory_format=torch.contiguous_format).float()
 
-    pixel_values = torch.stack([torch.from_numpy(example["pixel_values"]) for example in examples])
+    if isinstance(examples[0]["pixel_values"], list):
+        print(ret)
+        pixel_values = torch.stack([torch.from_numpy(example["pixel_values"][ret]) for example in examples])
+    else:
+        pixel_values = torch.stack([torch.from_numpy(example["pixel_values"]) for example in examples])
+
     pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
     filename_lst = [ os.path.basename(example['label']['path']) for example in examples ]
     

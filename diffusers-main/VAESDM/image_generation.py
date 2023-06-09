@@ -6,7 +6,7 @@ from model.unet_2d_sdm import SDMUNet2DModel
 from model.unet import UNetModel
 from cityscape_ds_alpha import load_data, collate_fn
 from scheduler_factory import scheduler_setup
-
+from taming.models.vqvae import VQSub
 Pipe_dispatcher = {
     'LDMPipeline' : LDMPipeline, 
     'SDMPipeline' : SDMPipeline,
@@ -58,8 +58,31 @@ def get_dataloader(data_dir, image_size, batch_size, num_workers, subset_type="t
 
 def get_diffusion_modules(unet_path, numk_ckpt, vae_type=None):
     # Load pretrained unet from local..
-    unet_path = path.join(unet_path, f"checkpoint-{numk_ckpt*1000}")
-    unet = UNetModel.from_pretrained(unet_path, subfolder='unet').to('cuda').to(torch.float16)
+    if ".pt" in unet_path:
+        unet = UNetModel(
+        image_size=(270, 360),
+        in_channels=3,
+        model_channels=256,
+        out_channels=3*2,
+        num_res_blocks=2,
+        attention_resolutions=(8,16,32),
+        dropout=0,
+        channel_mult=(1, 1, 2, 4, 4),
+        num_heads= 64,
+        num_head_channels= -1,
+        num_heads_upsample= -1,
+        use_scale_shift_norm=True,
+        resblock_updown=True,
+        use_new_attention_order=False,
+        num_classes=35,
+        use_checkpoint=True,
+        )
+        unet.load_state_dict(torch.load(unet_path))
+        unet = unet.to(torch.float16)
+    else:
+        unet_path = path.join(unet_path, f"checkpoint-{numk_ckpt*1000}")
+        unet = UNetModel.from_pretrained(unet_path, subfolder='unet').to('cuda').to(torch.float16)
+
     if not vae_type:
         return unet, None
 
@@ -67,7 +90,8 @@ def get_diffusion_modules(unet_path, numk_ckpt, vae_type=None):
     if vae_type == 'KL':
         vae = AutoencoderKL.from_pretrained('CompVis/stable-diffusion-v1-4', subfolder='vae').to('cuda').to(torch.float16)
     elif vae_type == 'VQ':
-        vae = VQModel.from_pretrained('CompVis/ldm-super-resolution-4x-openimages', subfolder='vqvae').to('cuda').to(torch.float16)
+        #vae = VQModel.from_pretrained('CompVis/ldm-super-resolution-4x-openimages', subfolder='vqvae').to('cuda').to(torch.float16)
+        vae = VQSub.from_pretrained('/data/harry/Data_generation/diffusers-main/VQVAE/VQ_model/70ep', subfolder='vqvae').to('cuda').to(torch.float16)
     else:
         raise ValueError(f"Unsupport VAE type {vae_type}")
     
@@ -93,28 +117,30 @@ def get_cfg_str():
     return '''
     seed = 42@int
     
-    num_inference_steps = 1000@int
+    num_inference_steps = 50@int
     scheduler_type = DDPM@str
     save_dir = Gen_results@str
     num_save_im = 8@int
-    s = 1.5@float 
+    s = 1@float 
+    
     [dataloader]
         data_dir = /data1/dataset/Cityscapes@str
-        image_size = 270@int
+        image_size = 540@int
         batch_size = 8@int
         num_workers = 1@int
         subset_type = val@str
 
     [diff_mod]
-        unet_path = /data/harry/Data_generation/diffusers-main/VAESDM/learn_var_dfsc_sdm-model@str
-        numk_ckpt = 5@int
-        vae_type = @str
+        unet_path = /data/harry/Data_generation/diffusers-main/VAESDM/ourVQVAE-SDM@str
+        #unet_path = /data/harry/Data_generation/OUTPUT/Cityscapes270-SDM-256CH-500epoch/model120000.pt@str
+        numk_ckpt = 30@int
+        vae_type = VQ@str
 
-    
     [pipe]
-        pipe_type = SDMPipeline@str
+        pipe_type = SDMLDMPipeline@str
         pipe_path = @str
     '''
+
 
 if __name__ == "__main__":
     from torchvision.utils import save_image
@@ -126,8 +152,7 @@ if __name__ == "__main__":
     unet, vae = get_diffusion_modules(**cfger.diff_mod)
 
     pipe = get_pipeline(**cfger.pipe, unet=unet, vae=vae)
-    pipe = scheduler_setup(pipe, cfger.scheduler_type)
-
+    pipe = scheduler_setup(pipe, cfger.scheduler_type, from_config = "CompVis/stable-diffusion-v1-4")
     pipe = pipe.to("cuda")
 
     makedirs(cfger.save_dir, exist_ok=True)
@@ -149,13 +174,19 @@ if __name__ == "__main__":
 
         segmap = preprocess_input(batch["segmap"], num_classes=34)
         segmap = segmap.to("cuda").to(torch.float16)
-        images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = 1.5).images
+        images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = cfger.s).images
+        #img_lst.extend(list(zip(*images)))
         img_lst.extend(images)
 
-
-    
+    #img_lst = map(list, map(None, *img_lst))
+    #print(len(img_lst))
     for idx, (image, clr_msk, fn_w_ext) in enumerate( zip(img_lst, clr_msk_lst, fn_lst) ):
         if idx <= cfger.num_save_im:
-            image.save(f"{cfger.save_dir}/gen_{fn_w_ext}")
+            if isinstance(image, tuple):
+                print(len(image))
+                for i, im in enumerate(image):
+                    im.save(f"{cfger.save_dir}/gen_{i}step_{fn_w_ext}")
+            else:
+                image.save(f"{cfger.save_dir}/gen_{fn_w_ext}")
             save_image(clr_msk, f"{cfger.save_dir}/msk_{fn_w_ext}")
             

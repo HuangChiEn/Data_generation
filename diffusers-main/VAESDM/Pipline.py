@@ -7,7 +7,7 @@ from diffusers.models import UNet2DModel, VQModel
 from diffusers.schedulers import DDIMScheduler
 from diffusers.utils import randn_tensor
 from diffusers.pipeline_utils import DiffusionPipeline, ImagePipelineOutput
-
+import copy
 
 class LDMPipeline(DiffusionPipeline):
     r"""
@@ -129,6 +129,8 @@ class SDMLDMPipeline(DiffusionPipeline):
         num_inference_steps: int = 1000,
         output_type: Optional[str] = "pil",
         return_dict: bool = True,
+        every_step_save: int = None,
+        s: int = 1,
         **kwargs,
     ) -> Union[Tuple, ImagePipelineOutput]:
         r"""
@@ -151,6 +153,7 @@ class SDMLDMPipeline(DiffusionPipeline):
             [`~pipelines.ImagePipelineOutput`] or `tuple`: [`~pipelines.model.ImagePipelineOutput`] if `return_dict` is
             True, otherwise a `tuple. When returning a tuple, the first element is a list with the generated images.
         """
+        self.unet.config.sample_size = (135,180)
         if not isinstance(self.unet.config.sample_size, tuple):
             self.unet.config.sample_size = (self.unet.config.sample_size, self.unet.config.sample_size)
 
@@ -176,21 +179,43 @@ class SDMLDMPipeline(DiffusionPipeline):
         if accepts_eta:
             extra_kwargs["eta"] = eta
 
-        for t in self.progress_bar(self.scheduler.timesteps):
+        step_latent = []
+        for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
             latent_model_input = self.scheduler.scale_model_input(latents, t)
             # predict the noise residual
             noise_prediction = self.unet(latent_model_input, segmap, t).sample
             # compute the previous noisy sample x_t -> x_t-1
+
+            if s > 1.0:
+                model_output_zero = self.unet(latent_model_input, torch.zeros_like(segmap), t).sample
+                noise_prediction[:, :3] = model_output_zero[:, :3] + s * (noise_prediction[:, :3] - model_output_zero[:, :3])
+
             latents = self.scheduler.step(noise_prediction, t, latents, **extra_kwargs).prev_sample
 
-        # decode the image latents with the VAE
-        latents /= self.vae.config.scaling_factor#(0.18215)
-        image = self.vae.decode(latents).sample
+            if every_step_save is not None:
+                if (i+1) % every_step_save == 0:
+                    step_latent.append(copy.deepcopy(latents))
 
-        image = (image / 2 + 0.5).clamp(0, 1)
-        image = image.cpu().permute(0, 2, 3, 1).numpy()
-        if output_type == "pil":
-            image = self.numpy_to_pil(image)
+        # decode the image latents with the VAE
+        if every_step_save is not None:
+            image = []
+            for i, l in enumerate(step_latent):
+                print(i)
+                l /= self.vae.config.scaling_factor  # (0.18215)
+                l = self.vae.decode(l, segmap)
+                l = (l / 2 + 0.5).clamp(0, 1)
+                l = l.cpu().permute(0, 2, 3, 1).numpy()
+                if output_type == "pil":
+                    l = self.numpy_to_pil(l)
+                image.append(l)
+        else:
+            latents /= self.vae.config.scaling_factor#(0.18215)
+            image = self.vae.decode(latents, segmap)
+
+            image = (image / 2 + 0.5).clamp(0, 1)
+            image = image.cpu().permute(0, 2, 3, 1).numpy()
+            if output_type == "pil":
+                image = self.numpy_to_pil(image)
 
         if not return_dict:
             return (image,)
@@ -281,11 +306,13 @@ class SDMPipeline(DiffusionPipeline):
             # predict the noise residual
             noise_prediction = self.unet(latent_model_input, segmap, t).sample
 
+            #noise_prediction = noise_prediction[]
+
             if s > 1.0:
                 model_output_zero = self.unet(latent_model_input, torch.zeros_like(segmap), t).sample
                 noise_prediction[:, :3] = model_output_zero[:, :3] + s * (noise_prediction[:, :3] - model_output_zero[:, :3])
 
-
+            #noise_prediction = noise_prediction[:, :3]
 
             # compute the previous noisy sample x_t -> x_t-1
             latents = self.scheduler.step(noise_prediction, t, latents, **extra_kwargs).prev_sample

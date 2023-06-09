@@ -908,18 +908,30 @@ def main():
 
                         true_log_variance_clipped = posterior_log_variance_clipped.to(device=timesteps.device)[timesteps].float()[..., None, None, None]
 
+
+
                         true_posterior_mean = (
                                 posterior_mean_coef1.to(device=timesteps.device)[timesteps].float()[..., None, None, None] * latents
                                 + posterior_mean_coef2.to(device=timesteps.device)[timesteps].float()[..., None, None, None] * noisy_latents
                         )
 
+                        if noise_scheduler.variance_type == "learn_range":
+                            min_log = true_log_variance_clipped
+                            max_log = torch.log(noise_scheduler.betas[timesteps].float()[..., None, None, None])
+                            frac = (model_pred_var + 1) / 2
+                            model_log_variance = frac * max_log + (1 - frac) * min_log
+                            model_pred_var = torch.exp(model_log_variance)
+                        else:
+                            model_log_variance = model_pred_var
+                            model_pred_var = torch.exp(model_log_variance)
+
                         kl = normal_kl(
-                            true_posterior_mean, true_log_variance_clipped, model_pred_mean, model_pred_var
+                            true_posterior_mean, true_log_variance_clipped, model_pred_mean, model_log_variance
                         )
                         kl = kl.mean() / np.log(2.0)
 
                         decoder_nll = -discretized_gaussian_log_likelihood(
-                            latents, means=model_pred_mean, log_scales=0.5 * model_pred_var
+                            latents, means=model_pred_mean, log_scales=0.5 * model_log_variance
                         )
                         assert decoder_nll.shape == latents.shape
                         decoder_nll = decoder_nll.mean() / np.log(2.0)
@@ -927,8 +939,6 @@ def main():
                         # At the first timestep return the decoder NLL,
                         # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
                         kl_loss = torch.where((timesteps == 0), decoder_nll, kl).mean()
-
-                        kl_loss = kl_loss / noise_scheduler.num_train_timesteps
 
                         loss += kl_loss
                 else:
