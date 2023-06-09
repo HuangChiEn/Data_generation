@@ -1,13 +1,8 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='taming-transformers',
+    name='taming-transformer',
     version='0.0.1',
     description='Taming Transformers for High-Resolution Image Synthesis',
-    packages=find_packages(),
-    install_requires=[
-        'torch',
-        'numpy',
-        'tqdm',
-    ],
+    packages=['taming', 'taming/data', 'taming/modules', 'taming/models'],
 )
