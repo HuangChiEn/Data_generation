@@ -5,6 +5,7 @@ import random
 import warnings
 from pathlib import Path
 from typing import Callable
+from functools import partial
 
 # 3rd pkgs
 import numpy as np
@@ -53,10 +54,11 @@ def load_data(
     return all_ds[subset_type[0]] if len(subset_type) == 1 else all_ds
 
 class Cityscape_ds(Dataset):
-    def __init__(self, data_dir, subset, resize_size, random_flip):
+    def __init__(self, data_dir, subset, resize_size, random_flip=True, rnd_rng=True):
         super().__init__()
         self.resize_size = resize_size
         self.random_flip = random_flip
+        self.rnd_rng = rnd_rng
         # Path object glob method return iterator, so we immediately turn it into list
         self.imgs_path = list( (data_dir / 'leftImg8bit' / subset).glob('*/*.png') )
         # get corresponding label(s)
@@ -102,10 +104,18 @@ class Cityscape_ds(Dataset):
         return resiz_pil_im
 
     # confirm: crop_size is the same for all of input tensor (img, inst_im, ..., etc.)
-    def __center_crop(self, pil_im, crop_size):
+    def __center_crop(self, pil_im, crop_size, rnd_rng=False):
         arr_im = np.array(pil_im)
-        crop_x = (arr_im.shape[1] - crop_size[1]) // 2
-        return arr_im[:, crop_x: crop_x + crop_size[1]]
+        if 'int' in str(type(rnd_rng)):
+            crop_x = rnd_rng
+            return arr_im[:, crop_x: crop_x + crop_size[1]]
+        elif rnd_rng:
+            samp_rng = (arr_im.shape[1] - crop_size[1])
+            crop_x = np.random.randint(0, samp_rng)
+            return (arr_im[:, crop_x: crop_x + crop_size[1]], crop_x)
+        else:
+            crop_x = (arr_im.shape[1] - crop_size[1]) // 2
+            return arr_im[:, crop_x: crop_x + crop_size[1]]
         
     def __getitem__(self, idx):
         # read img from pil format
@@ -130,9 +140,15 @@ class Cityscape_ds(Dataset):
         sc = 1080 // self.resize_size  
         crop_size = ( self.resize_size, 1440//sc )
 
-        img = self.__center_crop(img, crop_size)
-        clr_msk_im, cls_im, inst_im = \
-            self.__center_crop(clr_msk_im, crop_size), self.__center_crop(cls_im, crop_size), self.__center_crop(inst_im, crop_size)
+        if self.rnd_rng:
+            img, crop_x = self.__center_crop(img, crop_size, self.rnd_rng)
+            fix_crop = partial(self.__center_crop, rnd_rng=crop_x)
+            clr_msk_im, cls_im, inst_im = \
+                fix_crop(clr_msk_im, crop_size), fix_crop(cls_im, crop_size), fix_crop(inst_im, crop_size)
+        else:
+            img = self.__center_crop(img, crop_size, False)
+            clr_msk_im, cls_im, inst_im = \
+                self.__center_crop(clr_msk_im, crop_size), self.__center_crop(cls_im, crop_size), self.__center_crop(inst_im, crop_size)
         
         if self.random_flip and random.random() < 0.5:
             img = img[:, ::-1].copy()
@@ -196,4 +212,39 @@ def collate_fn(examples):
 
 # unittest..
 if __name__ == "__main__":
-    ...
+    from easy_configer.Configer import Configer
+    cfger = Configer()
+    cfger.cfg_from_str('''
+    [ds]
+        data_dir = '/data1/dataset/Cityscapes'
+        resize_size = 540
+        subset_type = 'val'
+    [ld]
+        batch_size = 8
+        num_workers = 0
+        shuffle = False
+    ''')
+
+    import torch
+
+    train_dataset = load_data(**cfger.ds)
+    data_ld = torch.utils.data.DataLoader(
+        train_dataset,
+        collate_fn=collate_fn,
+        **cfger.ld
+    )
+
+    for idx, batch in enumerate(data_ld, 0):
+        fn_lst.extend(batch['filename'])
+        clr_msks = [ clr_inst.permute(0, 3, 1, 2) / 255. for clr_inst in batch["segmap"]['clr_instance'] ]
+        clr_msk_lst.extend(clr_msks)
+
+        segmap = preprocess_input(batch["segmap"], num_classes=34)
+        segmap = segmap.to("cuda").to(torch.float16)
+        images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = cfger.s).images
+        #img_lst.extend(list(zip(*images)))
+        img_lst.extend(images)
+
+        break  # yeah ~ take the break
+    
+    breakpoint()

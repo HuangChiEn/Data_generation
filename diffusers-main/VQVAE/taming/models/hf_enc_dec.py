@@ -137,7 +137,7 @@ class Decoder(nn.Module):
             up_blk_getter = partial(get_up_block, up_block_type='SDMUpDecoderBlock2D', segmap_channels=self.segmap_channels)
         else:
             unet_mid_blk = UNetMidBlock2D
-            up_blk_getter = partial(get_up_block, up_block_type=up_block_types)
+            up_blk_getter = partial(get_up_block, up_block_type=up_block_types[0])
 
         self.layers_per_block = layers_per_block
         
