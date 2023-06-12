@@ -188,6 +188,10 @@ class Cityscape_cache(Dataset):
             sample = torch.cuda.FloatTensor(**mean.shape).normal_(mean=0, std=1)
             x = mean + std * sample
             x = x * Cityscape_cache.VAE_SCALE
+        elif isinstance(vae_cache['x'], list):
+            ret = random.randint(0, len(vae_cache['x'])-1)
+            x = vae_cache['x'][ret] * Cityscape_cache.VAE_SCALE
+            vae_cache['label']["segmap"] = vae_cache['label']["segmap"][ret]
         else:
             x = vae_cache['x']
             print(x.shape)
