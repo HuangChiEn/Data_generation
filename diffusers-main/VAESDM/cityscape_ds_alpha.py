@@ -177,9 +177,7 @@ class Cityscape_cache(Dataset):
         elif isinstance(vae_cache['x'], list):
             ret = random.randint(0, len(vae_cache['x'])-1)
             x = vae_cache['x'][ret] * Cityscape_cache.VAE_SCALE
-            #print("b", len(vae_cache['label']["segmap"]))
             vae_cache['label']["segmap"] = vae_cache['label']["segmap"][ret]
-            #print("a",vae_cache['label']["segmap"].shape)
         else:
             #print("error")
             x = vae_cache['x'] * Cityscape_cache.VAE_SCALE

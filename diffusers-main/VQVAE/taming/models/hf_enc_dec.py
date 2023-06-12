@@ -129,7 +129,6 @@ class Decoder(nn.Module):
     ):
         super().__init__()
         up_block_types*=len(block_out_channels)
-
         self.use_SPADE = use_SPADE
         self.segmap_channels = segmap_channels
         if self.use_SPADE:
@@ -137,7 +136,7 @@ class Decoder(nn.Module):
             up_blk_getter = partial(get_up_block, up_block_type='SDMUpDecoderBlock2D', segmap_channels=self.segmap_channels)
         else:
             unet_mid_blk = UNetMidBlock2D
-            up_blk_getter = partial(get_up_block, up_block_type=up_block_types)
+            up_blk_getter = partial(get_up_block, up_block_type=up_block_types[0])
 
         self.layers_per_block = layers_per_block
         
@@ -196,10 +195,9 @@ class Decoder(nn.Module):
 
         self.gradient_checkpointing = True
 
-    def forward(self, z, segmap):
+    def forward(self, z, segmap=None):
         sample = z
         sample = self.conv_in(sample)
-
         upscale_dtype = next(iter(self.up_blocks.parameters())).dtype
         if self.training and self.gradient_checkpointing:
 
@@ -214,16 +212,24 @@ class Decoder(nn.Module):
             sample = sample.to(upscale_dtype)
 
             # up
-            for up_block in self.up_blocks:
-                sample = torch.utils.checkpoint.checkpoint(create_custom_forward(up_block), sample, segmap)
+            if segmap is not None:
+                for up_block in self.up_blocks:
+                    sample = torch.utils.checkpoint.checkpoint(create_custom_forward(up_block), sample, segmap)
+            else:
+                for up_block in self.up_blocks:
+                    sample = torch.utils.checkpoint.checkpoint(create_custom_forward(up_block), sample)
         else:
             # middle
             sample = self.mid_block(sample, segmap)
             sample = sample.to(upscale_dtype)
 
             # up
-            for up_block in self.up_blocks:
-                sample = up_block(sample, segmap)
+            if segmap is not None:
+                for up_block in self.up_blocks:
+                    sample = up_block(sample, segmap)
+            else:
+                for up_block in self.up_blocks:
+                    sample = up_block(sample)
 
         # post-process
         sample = self.conv_norm_out(sample)

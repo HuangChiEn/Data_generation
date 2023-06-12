@@ -8,11 +8,16 @@
 - [x] Train the SDE with the CityScape Dataset
   - [x] Implementation of the Cityscape results from the SDM paper
   - [x] Training SDM with the 270X360 @harry
-- [ ] Adding the VAE   
-  - [ ] Codding in training @harry
-  - [ ] Codding in inference @harry
-- [ ] Optimize code and other works
-  - [ ] Refactor the official code (Change to the pytorch lightning)@harry @HuangChiEn
+- [x] Adding the VAE(VQVAE)   
+  - [x] Codding in training @harry
+  - [x] Codding in inference @harry
+- [ ] VQ-VAE and VAE training code
+  - [ ] VAE training code
+  - [X] VQ-VAE training code
+  - [ ] fix multi GPU training
+- [x] Optimize code
+  - [x] Refactor the official code (Change to the Hugging Face)@harry @HuangChiEn
+
 
 
 [//]: # (&nbsp;)
@@ -42,24 +47,6 @@
   <img src='assets/cityscapes.png'/>
 </p>
 
-* **CelebA:**
-
-<p align='center'>  
-  <img src='assets/celeba.png'/>
-</p>
-
-* **ADE20K:**
-
-<p align='center'>  
-  <img src='assets/ade.png'/>
-</p>
-
-* **COCO-Stuff:**
-
-<p align='center'>  
-  <img src='assets/coco.png'/>
-</p>
-
 ## Prerequisites
 - Linux
 - Python 3
@@ -68,6 +55,7 @@
 
 ## Dataset Preparation
 The Cityscapes and ADE20K dataset can be downloaded and prepared following [SPADE](https://github.com/NVlabs/SPADE.git). The CelebAMask-HQ can be downloaded from [CelebAMask-HQ](https://github.com/switchablenorms/CelebAMask-HQ), you need to to integrate the separated annotations into an image file (the format like other datasets, e.g. Cityscapes and ADE20K). 
+TKS to HuangChiEn, 
 
 ### NEGCUT Training and Test
 
