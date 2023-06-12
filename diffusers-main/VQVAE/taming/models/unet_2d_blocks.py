@@ -461,6 +461,7 @@ class UNetMidBlock2D(nn.Module):
         add_attention: bool = True,
         attn_num_head_channels=1,
         output_scale_factor=1.0,
+        **ignore_kwargs
     ):
         super().__init__()
         resnet_groups = resnet_groups if resnet_groups is not None else min(in_channels // 4, 32)
@@ -516,6 +517,7 @@ class UNetMidBlock2D(nn.Module):
         self.resnets = nn.ModuleList(resnets)
 
     def forward(self, hidden_states, temb=None):
+
         hidden_states = self.resnets[0](hidden_states, temb)
         for attn, resnet in zip(self.attentions, self.resnets[1:]):
             if attn is not None:
@@ -2292,6 +2294,7 @@ class UpDecoderBlock2D(nn.Module):
         resnet_pre_norm: bool = True,
         output_scale_factor=1.0,
         add_upsample=True,
+        **ignore_kwargs
     ):
         super().__init__()
         resnets = []

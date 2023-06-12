@@ -196,6 +196,155 @@ class SPADEGroupNorm(nn.Module):
         # apply scale and bias
         return x * (1 + gamma) + beta
 
+class AdaIN(nn.Module):
+    def __init__(self, num_features):
+        super().__init__()
+        self.instance_norm = th.nn.InstanceNorm2d(num_features, affine=False, track_running_stats=False)
+
+    def forward(self, x, alpha, gamma):
+        assert x.shape[:2] == alpha.shape[:2] == gamma.shape[:2]
+        norm = self.instance_norm(x)
+        return alpha * norm + gamma
+
+class RESAILGroupNorm(nn.Module):
+    def __init__(self, norm_nc, label_nc, guidance_nc, eps = 1e-5):
+        super().__init__()
+
+        self.norm = nn.GroupNorm(32, norm_nc, affine=False) # 32/16
+
+        # SPADE
+        self.eps = eps
+        nhidden = 128
+        self.mask_mlp_shared = nn.Sequential(
+            nn.Conv2d(label_nc, nhidden, kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+
+        self.mask_mlp_gamma = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
+        self.mask_mlp_beta = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
+
+
+        # Guidance
+
+        self.conv_s = th.nn.Conv2d(label_nc, nhidden * 2, 3, 2)
+        self.pool_s = th.nn.AdaptiveAvgPool2d(1)
+        self.conv_s2 = th.nn.Conv2d(nhidden * 2, nhidden * 2, 1, 1)
+
+        self.conv1 = th.nn.Conv2d(guidance_nc, nhidden, 3, 1, padding=1)
+        self.adaIn1 = AdaIN(norm_nc * 2)
+        self.relu1 = nn.ReLU()
+
+        self.conv2 = th.nn.Conv2d(nhidden, nhidden, 3, 1, padding=1)
+        self.adaIn2 = AdaIN(norm_nc * 2)
+        self.relu2 = nn.ReLU()
+        self.conv3 = th.nn.Conv2d(nhidden, nhidden, 3, 1, padding=1)
+
+        self.guidance_mlp_gamma = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
+        self.guidance_mlp_beta = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
+
+        self.blending_gamma = nn.Parameter(th.zeros(1), requires_grad=True)
+        self.blending_beta = nn.Parameter(th.zeros(1), requires_grad=True)
+        self.norm_nc = norm_nc
+
+    def forward(self, x, segmap, guidance):
+        # Part 1. generate parameter-free normalized activations
+        x = self.norm(x)
+        # Part 2. produce scaling and bias conditioned on semantic map
+        segmap = F.interpolate(segmap, size=x.size()[2:], mode='nearest')
+        mask_actv = self.mask_mlp_shared(segmap)
+        mask_gamma = self.mask_mlp_gamma(mask_actv)
+        mask_beta = self.mask_mlp_beta(mask_actv)
+
+
+        # Part 3. produce scaling and bias conditioned on feature guidance
+        guidance = F.interpolate(guidance, size=x.size()[2:], mode='bilinear')
+
+        f_s_1 = self.conv_s(segmap)
+        c1 = self.pool_s(f_s_1)
+        c2 = self.conv_s2(c1)
+
+        f1 = self.conv1(guidance)
+
+        f1 = self.adaIn1(f1, c1[:, : 128, ...], c1[:, 128:, ...])
+        f2 = self.relu1(f1)
+
+        f2 = self.conv2(f2)
+        f2 = self.adaIn2(f2, c2[:, : 128, ...], c2[:, 128:, ...])
+        f2 = self.relu2(f2)
+        guidance_actv = self.conv3(f2)
+
+        guidance_gamma = self.guidance_mlp_gamma(guidance_actv)
+        guidance_beta = self.guidance_mlp_beta(guidance_actv)
+
+        gamma_alpha = F.sigmoid(self.blending_gamma)
+        beta_alpha = F.sigmoid(self.blending_beta)
+
+        gamma_final = gamma_alpha * guidance_gamma + (1 - gamma_alpha) * mask_gamma
+        beta_final = beta_alpha * guidance_beta + (1 - beta_alpha) * mask_beta
+        out = x * (1 + gamma_final) + beta_final
+
+        # apply scale and bias
+        return out
+
+class SPMGroupNorm(nn.Module):
+    def __init__(self, norm_nc, label_nc, feature_nc, eps = 1e-5):
+        super().__init__()
+        print("use SPM")
+
+        self.norm = nn.GroupNorm(32, norm_nc, affine=False) # 32/16
+
+        # SPADE
+        self.eps = eps
+        nhidden = 128
+        self.mask_mlp_shared = nn.Sequential(
+            nn.Conv2d(label_nc, nhidden, kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+
+        self.mask_mlp_gamma1 = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
+        self.mask_mlp_beta1 = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
+
+        self.mask_mlp_gamma2 = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
+        self.mask_mlp_beta2 = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
+
+
+        # Feature
+        self.feature_mlp_shared = nn.Sequential(
+            nn.Conv2d(feature_nc, nhidden, kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+
+        self.feature_mlp_gamma1 = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
+        self.feature_mlp_beta1 = nn.Conv2d(nhidden, norm_nc, kernel_size=3, padding=1)
+
+
+    def forward(self, x, segmap, guidance):
+        # Part 1. generate parameter-free normalized activations
+        x = self.norm(x)
+        # Part 2. produce scaling and bias conditioned on semantic map
+        segmap = F.interpolate(segmap, size=x.size()[2:], mode='nearest')
+        mask_actv = self.mask_mlp_shared(segmap)
+        mask_gamma1 = self.mask_mlp_gamma1(mask_actv)
+        mask_beta1 = self.mask_mlp_beta1(mask_actv)
+
+        mask_gamma2 = self.mask_mlp_gamma2(mask_actv)
+        mask_beta2 = self.mask_mlp_beta2(mask_actv)
+
+
+        # Part 3. produce scaling and bias conditioned on feature guidance
+        guidance = F.interpolate(guidance, size=x.size()[2:], mode='bilinear')
+        feature_actv = self.feature_mlp_shared(guidance)
+        feature_gamma1 = self.feature_mlp_gamma1(feature_actv)
+        feature_beta1 = self.feature_mlp_beta1(feature_actv)
+
+        gamma_final = feature_gamma1 * (1 + mask_gamma1) + mask_beta1
+        beta_final = feature_beta1 * (1 + mask_gamma2) + mask_beta2
+
+        out = x * (1 + gamma_final) + beta_final
+
+        # apply scale and bias
+        return out
+
 
 class ResBlock(TimestepBlock):
     """
@@ -314,7 +463,6 @@ class ResBlock(TimestepBlock):
             h = self.out_layers(h)
         return self.skip_connection(x) + h
 
-
 class SDMResBlock(CondTimestepBlock):
     """
     A residual block that can optionally change the number of channels.
@@ -345,16 +493,25 @@ class SDMResBlock(CondTimestepBlock):
         use_checkpoint=False,
         up=False,
         down=False,
+        SPADE_type = "spade",
+        guidance_nc = None
     ):
         super().__init__()
         self.channels = channels
+        self.guidance_nc = guidance_nc
         self.emb_channels = emb_channels
         self.dropout = dropout
         self.out_channels = out_channels or channels
         self.use_conv = use_conv
         self.use_checkpoint = use_checkpoint
         self.use_scale_shift_norm = use_scale_shift_norm
-        self.in_norm = SPADEGroupNorm(channels, c_channels)
+        self.SPADE_type = SPADE_type
+        if self.SPADE_type == "spade":
+            self.in_norm = SPADEGroupNorm(channels, c_channels)
+        elif self.SPADE_type == "RESAIL":
+            self.in_norm = RESAILGroupNorm(channels, c_channels, guidance_nc)
+        elif self.SPADE_type == "SPM":
+            self.in_norm = SPMGroupNorm(channels, c_channels, guidance_nc)
         self.in_layers = nn.Sequential(
             SiLU(),
             conv_nd(dims, channels, self.out_channels, 3, padding=1),
@@ -378,7 +535,14 @@ class SDMResBlock(CondTimestepBlock):
                 2 * self.out_channels if use_scale_shift_norm else self.out_channels,
             ),
         )
-        self.out_norm = SPADEGroupNorm(self.out_channels, c_channels)
+
+        if self.SPADE_type == "spade":
+            self.out_norm = SPADEGroupNorm(self.out_channels, c_channels)
+        elif self.SPADE_type == "RESAIL":
+            self.out_norm = RESAILGroupNorm(self.out_channels, c_channels, guidance_nc)
+        elif self.SPADE_type == "SPM":
+            self.out_norm = SPMGroupNorm(self.out_channels, c_channels, guidance_nc)
+
         self.out_layers = nn.Sequential(
             SiLU(),
             nn.Dropout(p=dropout),
@@ -410,15 +574,27 @@ class SDMResBlock(CondTimestepBlock):
         # )
 
     def _forward(self, x, cond, emb):
+        if self.SPADE_type == "RESAIL" or self.SPADE_type == "SPM":
+            assert self.guidance_nc is not None, "Please set guidance_nc when you use RESAIL"
+            guidance = x[: ,x.shape[1] - self.guidance_nc:, ...]
+        else:
+            guidance = None
         if self.updown:
             in_rest, in_conv = self.in_layers[:-1], self.in_layers[-1]
-            h = self.in_norm(x, cond)
+            if self.SPADE_type == "spade":
+                h = self.in_norm(x, cond)
+            elif self.SPADE_type == "RESAIL" or self.SPADE_type == "SPM":
+                h = self.in_norm(x, cond, guidance)
+
             h = in_rest(h)
             h = self.h_upd(h)
             x = self.x_upd(x)
             h = in_conv(h)
         else:
-            h = self.in_norm(x, cond)
+            if self.SPADE_type == "spade":
+                h = self.in_norm(x, cond)
+            elif self.SPADE_type == "RESAIL" or self.SPADE_type == "SPM":
+                h = self.in_norm(x, cond, guidance)
             h = self.in_layers(h)
 
         emb_out = self.emb_layers(emb)#.type(h.dtype)
@@ -426,11 +602,20 @@ class SDMResBlock(CondTimestepBlock):
             emb_out = emb_out[..., None]
         if self.use_scale_shift_norm:
             scale, shift = th.chunk(emb_out, 2, dim=1)
-            h = self.out_norm(h, cond) * (1 + scale) + shift
+            if self.SPADE_type == "spade":
+                h = self.out_norm(h, cond)
+            elif self.SPADE_type == "RESAIL" or self.SPADE_type == "SPM":
+                h = self.out_norm(h, cond, guidance)
+
+            h = h * (1 + scale) + shift
             h = self.out_layers(h)
         else:
             h = h + emb_out
-            h = self.out_norm(h, cond)
+            if self.SPADE_type == "spade":
+                h = self.out_norm(h, cond)
+            elif self.SPADE_type == "RESAIL" or self.SPADE_type == "SPM":
+                h = self.out_norm(x, cond, guidance)
+
             h = self.out_layers(h)
         return self.skip_connection(x) + h
 
@@ -627,6 +812,7 @@ class UNetModel(ModelMixin, ConfigMixin):
         resblock_updown=False,
         use_new_attention_order=False,
         mask_emb="resize",
+        SPADE_type="spade",
     ):
         super().__init__()
 
@@ -750,6 +936,7 @@ class UNetModel(ModelMixin, ConfigMixin):
         for level, mult in list(enumerate(channel_mult))[::-1]:
             for i in range(num_res_blocks + 1):
                 ich = input_block_chans.pop()
+                #print(ch, ich)
                 layers = [
                     SDMResBlock(
                         ch + ich,
@@ -760,6 +947,8 @@ class UNetModel(ModelMixin, ConfigMixin):
                         dims=dims,
                         use_checkpoint=use_checkpoint,
                         use_scale_shift_norm=use_scale_shift_norm,
+                        SPADE_type=SPADE_type,
+                        guidance_nc = ich,
                     )
                 ]
                 ch = int(model_channels * mult)

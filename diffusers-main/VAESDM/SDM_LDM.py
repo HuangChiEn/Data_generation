@@ -213,7 +213,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="testourVQVAE-SDM-SPADEtest",
+        default="testourVQVAE-SDM-SPM",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
@@ -484,7 +484,7 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
         log_with=args.report_to,
-        logging_dir=logging_dir,
+        #logging_dir=logging_dir,
         project_config=accelerator_project_config,
     )
 
@@ -575,6 +575,7 @@ def main():
         num_classes=args.segmap_channels + 1,
         mask_emb="resize",
         use_checkpoint=True,
+        SPADE_type="SPM",
     )
 
     # Create EMA for the unet.

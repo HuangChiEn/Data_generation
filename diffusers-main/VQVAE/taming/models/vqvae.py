@@ -60,6 +60,7 @@ class VQSub(ModelMixin, ConfigMixin):
             use_SPADE=use_SPADE
         )
 
+        self.use_SPADE = use_SPADE
 #------------------------------------------------------------------------------
 ## Main part..
     def encode(self, x):
@@ -68,17 +69,23 @@ class VQSub(ModelMixin, ConfigMixin):
         quant, emb_loss, info = self.quantize(h)
         return quant, emb_loss, info
 
-    def decode(self, quant, segmap):
+    def decode(self, quant, segmap=None):
         quant = self.post_quant_conv(quant)
-        dec = self.decoder(quant, segmap)
+        if self.use_SPADE:
+            dec = self.decoder(quant, segmap)
+        else:
+            dec = self.decoder(quant)
         return dec
 
-    def decode_code(self, code_b, segmap):
+    def decode_code(self, code_b, segmap=None):
         quant_b, _, _ = self.quantize(code_b)
-        dec = self.decode(quant_b, segmap)
+        if self.use_SPADE:
+            dec = self.decoder(quant_b, segmap)
+        else:
+            dec = self.decoder(quant_b)
         return dec
 
-    def forward(self, input, segmap):
+    def forward(self, input, segmap=None):
         quant, diff, _ = self.encode(input)
         dec = self.decode(quant, segmap)
         return dec, diff

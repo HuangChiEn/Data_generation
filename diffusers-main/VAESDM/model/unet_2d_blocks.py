@@ -1741,7 +1741,7 @@ class KCrossAttnDownBlock2D(nn.Module):
                 )
             )
             attentions.append(
-                KAttentionBlock(
+                AttentionBlock(
                     out_channels,
                     out_channels // attn_num_head_channels,
                     attn_num_head_channels,
