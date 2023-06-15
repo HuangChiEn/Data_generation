@@ -455,7 +455,7 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
         log_with=args.report_to,
-        logging_dir=logging_dir,
+        # logging_dir=logging_dir,
         project_config=accelerator_project_config,
     )
 
@@ -626,40 +626,7 @@ def main():
         accelerator.register_save_state_pre_hook(save_model_hook)
         accelerator.register_load_state_pre_hook(load_model_hook)
 
-    if args.gradient_checkpointing:
-        unet.enable_gradient_checkpointing()
-
-    # Enable TF32 for faster training on Ampere GPUs,
-    # cf https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
-    if args.allow_tf32:
-        torch.backends.cuda.matmul.allow_tf32 = True
-
-    if args.scale_lr:
-        args.learning_rate = (
-            args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
-        )
-
-    # Initialize the optimizer
-    if args.use_8bit_adam:
-        try:
-            import bitsandbytes as bnb
-        except ImportError:
-            raise ImportError(
-                "Please install bitsandbytes to use 8-bit Adam. You can do so by running `pip install bitsandbytes`"
-            )
-
-        optimizer_cls = bnb.optim.AdamW8bit
-    else:
-        optimizer_cls = torch.optim.AdamW
-
-    optimizer = optimizer_cls(
-        unet.parameters(),
-        lr=args.learning_rate,
-        betas=(args.adam_beta1, args.adam_beta2),
-        weight_decay=args.adam_weight_decay,
-        eps=args.adam_epsilon,
-    )
-
+    
     # Get the datasets: you can either provide your own training and evaluation files (see below)
     # or specify a Dataset from the hub (the dataset will be downloaded automatically from the datasets Hub).
 
@@ -756,26 +723,99 @@ def main():
         num_workers=args.dataloader_num_workers,
     )
 
+     ##----------------Two Notice Change when using Deepseed in Accelerate--------------------------
+    '''
+    Both Scheduler and  Optimizer should wrapped by (accelerate.utils.DummyOptim, accelerate.utils.DummyScheduler)
+    For example:
+    - optimizer = torch.optim.Adam(optimizer_grouped_parameters, lr=args.learning_rate)
+    This Change --> + optimizer = accelerate.utils.DummyOptim(optimizer_grouped_parameters, lr=args.learning_rate)
+
+    - lr_scheduler = get_scheduler(
+    -     name=args.lr_scheduler_type,
+    -     optimizer=optimizer,
+    -     num_warmup_steps=args.num_warmup_steps,
+    -     num_training_steps=args.max_train_steps,
+    - )
+
+    This Change lr_scheduler = accelerate.utils.DummyScheduler(
+    +     optimizer, total_num_steps=args.max_train_steps, warmup_num_steps=args.num_warmup_steps
+    + )
+
+    '''
+    ## Create Dummy Optimizer and Dummy Scheduler if using Deepseed in Accelerate
+    if args.gradient_checkpointing:
+        unet.enable_gradient_checkpointing()
+
+    # Enable TF32 for faster training on Ampere GPUs,
+    # cf https://pytorch.org/docs/stable/notes/cuda.html#tensorfloat-32-tf32-on-ampere-devices
+    if args.allow_tf32:
+        torch.backends.cuda.matmul.allow_tf32 = True
+
+    if args.scale_lr:
+        args.learning_rate = (
+            args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
+        )
+
+    # Initialize the optimizer
+    if args.use_8bit_adam:
+        try:
+            import bitsandbytes as bnb
+        except ImportError:
+            raise ImportError(
+                "Please install bitsandbytes to use 8-bit Adam. You can do so by running `pip install bitsandbytes`"
+            )
+
+        optimizer_cls = bnb.optim.AdamW8bit
+    else:
+        optimizer_cls = torch.optim.AdamW
+    
+    
+    ### Setting the Dummy optimizer if Deepspeed is Used in Accelerate 
+    optimizer_cls = (
+     torch.optim.AdamW
+     if accelerator.state.deepspeed_plugin is None
+     or "optimizer" not in accelerator.state.deepspeed_plugin.deepspeed_config
+     else accelerate.utils.DummyOptim
+            )
+
+    optimizer = optimizer_cls(
+        unet.parameters(),
+        lr=args.learning_rate,
+        betas=(args.adam_beta1, args.adam_beta2),
+        weight_decay=args.adam_weight_decay,
+        eps=args.adam_epsilon,
+    )
+
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if args.max_train_steps is None:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
-        overrode_max_train_steps = True
+        overrode_max_train_steps = True   
 
-    lr_scheduler = get_scheduler(
-        args.lr_scheduler,
-        optimizer=optimizer,
-        num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
-        num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
-    )
+    if (accelerator.state.deepspeed_plugin is None
+     or "scheduler" not in accelerator.state.deepspeed_plugin.deepspeed_config): 
+        
+ 
+        lr_scheduler = get_scheduler(
+            args.lr_scheduler,
+            optimizer=optimizer,
+            num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
+            num_training_steps=args.max_train_steps * args.gradient_accumulation_steps,
+        )
+    else:
+        lr_scheduler = accelerate.utils.DummyScheduler(
+            #args.lr_scheduler,
+         optimizer=optimizer, total_num_steps=args.max_train_steps * args.gradient_accumulation_steps, warmup_num_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
+     )
 
     # Prepare everything with our `accelerator`.
 
     unet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
         unet, optimizer, train_dataloader, lr_scheduler
     )
-
+    
+   
     if args.use_ema:
         ema_unet.to(accelerator.device)
 
@@ -991,6 +1031,9 @@ def main():
             )
 
     accelerator.end_training()
+
+
+
 
 
 if __name__ == "__main__":
