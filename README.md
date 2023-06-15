@@ -43,9 +43,7 @@
 ## SDM Example Results
 * **Cityscapes:**
 
-<p align='center'>  
-  <img src='assets/cityscapes.png'/>
-</p>
+![image](example/cityspace.png)
 
 ## Prerequisites
 - Linux
