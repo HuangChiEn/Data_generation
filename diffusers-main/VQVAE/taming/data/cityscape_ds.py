@@ -17,6 +17,8 @@ from torch.utils.data import DataLoader, Dataset
 # import guard, we only expose the following functions!!
 __all__ = ['load_data', 'collate_fn'] 
 
+global DS_DICT  # hoisting.. see javascript hoisting
+
 def load_data(
     data_dir:str = 'None', 
     cache_dir:str = 'None', 
@@ -27,12 +29,19 @@ def load_data(
     random_flip:bool = True, 
     data_ld_kwargs:dict = None
 ):
+    if 'cityscape' in data_dir.lower():
+        ds_mode = 'cityscape' 
+    elif 'kitti' in data_dir.lower(): 
+        ds_mode = 'kitti'
+    else:
+        raise ValueError(f"Currently we don't support dataset by given {data_dir}")
+
     # given dir chking..
     data_dir, cache_dir = Path(data_dir), Path(cache_dir)
     # cache mode, early return !!
     if cache_dir.exists():
         warnings.warn(f"Apply cache file, cache file only return train subset.")
-        return Cityscape_cache(cache_dir, cache_file_callbk)
+        return DS_DICT['cache'][ds_mode](cache_dir, cache_file_callbk)
 
     if not data_dir.exists():
         raise ValueError(f"data_dir '{data_dir}' is not exists!")
@@ -43,7 +52,7 @@ def load_data(
     subset_type = ['train', 'val'] if subset_type == 'all' else [subset_type]
     all_ds = {}
     for subset in subset_type:
-        all_ds[subset] = Cityscape_ds(data_dir, subset, resize_size, random_flip)
+        all_ds[subset] = DS_DICT['ds'][ds_mode](data_dir, subset, resize_size, random_flip)
 
     # wrap with torch dataloader ~
     if not ret_dataset:
@@ -200,6 +209,134 @@ class Cityscape_cache(Dataset):
     def __len__(self):
         return len(self.cache_path)
 
+class Kitti_cache:
+    VAE_SCALE = 0.18215
+
+    def __init__(self, cache_dir, cache_file_callbk=None):
+        self.cache_path = list( (cache_dir).glob('train/*/*.pt') )
+        self.cache_file_callbk = cache_file_callbk
+        
+    def __getitem__(self, idx):
+        vae_cache = torch.load(self.cache_path[idx])
+        # customized callback to deal with cache file
+        if self.cache_file_callbk:
+            return self.cache_file_callbk(vae_cache)
+        
+        # default procedure to load the cache file for VAE & VQVAE.. 
+        if isinstance(vae_cache['x'], dict):
+            mean, std = vae_cache['x']['mean'], vae_cache['x']['std']
+            # normal_ make more efficient with std=1, mean=0 (exactly as randn) 
+            # https://pytorch.org/docs/stable/generated/torch.randn.html
+            sample = torch.cuda.FloatTensor(**mean.shape).normal_(mean=0, std=1)
+            x = mean + std * sample
+            x = x * Kitti_cache.VAE_SCALE
+        elif isinstance(vae_cache['x'], list):
+            ret = random.randint(0, len(vae_cache['x'])-1)
+            x = vae_cache['x'][ret] * Kitti_cache.VAE_SCALE
+        else:
+            x = vae_cache['x']
+            print(x.shape)
+        return {"pixel_values": x, "label": vae_cache['label']}
+
+    def __len__(self):
+        return len(self.cache_path)
+
+class Kitti_ds:
+    def __init__(self, data_dir, subset, resize_size, random_flip=True, rnd_rng=True):
+        
+        def grap_path(data_dir):
+            # Path object glob method return iterator, so we immediately turn it into list
+            imgs_path = list( data_dir.rglob('**/**/image_02/data/*.png') )
+            # sort lst to confirm the order
+            imgs_path.sort()
+            return imgs_path
+
+        super().__init__()
+        self.resize_size = resize_size
+        self.random_flip = random_flip
+        self.rnd_rng = rnd_rng
+        self.subset = subset
+        data_dir = Path(data_dir)
+        self.imgs_path = grap_path(data_dir)
+
+    def __pil_read(self, path, read_mode='RGB'): 
+        with Image.open(path) as meta_im:
+            meta_im.load()
+        return meta_im.convert(read_mode)
+
+    def __ratio_resize(self, pil_im, resample_method):
+        min_len = min(*pil_im.size)
+        # directly resize wrt. scale : "ratio is kept"  or "input square image, H == W"
+        if (self.resize_size % min_len == 0) or len(set(pil_im.size)) == 1:
+            scale = self.resize_size / min_len
+            resiz_pil_im = pil_im.resize(
+                tuple(int(x * scale) for x in pil_im.size), resample=Image.BOX
+            )
+
+        ## two-stage resize to mimic the distortion of resize
+        # 1. stage : keep ratio downsampling (fast)
+        while min(*pil_im.size) >= 2 * self.resize_size:
+            pil_im = pil_im.resize(
+                tuple(x // 2 for x in pil_im.size), resample=Image.BOX
+            )
+        # 2. stage : bicubic style, carefully resize without keeping ratio
+        scale = self.resize_size / min(*pil_im.size)
+        resiz_pil_im = pil_im.resize(
+            tuple(round(x * scale) for x in pil_im.size), resample=resample_method
+        )
+        return resiz_pil_im
+
+    # confirm: crop_size is the same for all of input tensor (img, inst_im, ..., etc.)
+    def __center_crop(self, pil_im, crop_size, rnd_rng=False):
+        arr_im = np.array(pil_im)
+        if rnd_rng:
+            samp_rng = (arr_im.shape[1] - crop_size[1])
+            crop_x = np.random.randint(0, samp_rng)
+        else:
+            crop_x = (arr_im.shape[1] - crop_size[1]) // 2
+
+        return arr_im[:, crop_x: crop_x + crop_size[1]]
+        
+    def __getitem__(self, idx):
+        # read img from pil format
+        im_path = self.imgs_path[idx]
+        img = self.__pil_read(im_path)
+        
+        # resize img & labels
+        # dwn img with better quality : https://pillow.readthedocs.io/en/stable/handbook/concepts.html#filters-comparison-table
+        img = self.__ratio_resize(img, Image.BICUBIC)
+        
+        # center-crop (hard-code 1080, 1440 currently..)
+        sc = 1080 // self.resize_size  
+        crop_size = ( self.resize_size, 1440//sc )
+
+        if self.rnd_rng:
+            img = self.__center_crop(img, crop_size, self.rnd_rng)
+        else:
+            img = self.__center_crop(img, crop_size, False)
+        
+        if self.random_flip and random.random() < 0.5:
+            img = img[:, ::-1].copy()
+        breakpoint()
+        img = img.astype(np.float32) / 127.5 - 1
+        # switch to channel first format due to torch tensor..
+        return {"pixel_values":np.transpose(img, [2, 0, 1]), "label":{'path':im_path} }
+        
+    def __len__(self):
+        return len(self.imgs_path)
+
+
+DS_DICT = {
+    'cache' : {
+        'cityscape' : Cityscape_cache,
+        'kitti' : Kitti_cache
+    },
+    'ds' : {
+        'cityscape' : Cityscape_ds,
+        'kitti' : Kitti_ds
+    }
+}
+
 # default collate function
 def collate_fn(examples):
     segmap = {}
@@ -220,9 +357,9 @@ if __name__ == "__main__":
     cfger = Configer()
     cfger.cfg_from_str('''
     [ds]
-        data_dir = '/data1/dataset/Cityscapes'
+        data_dir = '/data/joseph/kitti_ds'
         resize_size = 540
-        subset_type = 'val'
+        subset_type = 'train'
     [ld]
         batch_size = 8
         num_workers = 0
@@ -237,8 +374,9 @@ if __name__ == "__main__":
         collate_fn=collate_fn,
         **cfger.ld
     )
-
+    fn_lst = []
     for idx, batch in enumerate(data_ld, 0):
+        breakpoint()
         fn_lst.extend(batch['filename'])
         clr_msks = [ clr_inst.permute(0, 3, 1, 2) / 255. for clr_inst in batch["segmap"]['clr_instance'] ]
         clr_msk_lst.extend(clr_msks)
