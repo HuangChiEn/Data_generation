@@ -93,7 +93,7 @@ def main():
 
         sample = sample_fn(
             model,
-            (args.batch_size, 3, image.shape[2], image.shape[3]) if not args.use_vae else (args.batch_size, 4, model_kwargs['y'].shape[2], model_kwargs['y'].shape[3]),
+            (args.batch_size, 3, image.shape[2], image.shape[3]) if not args.use_vae else (args.batch_size, 3, 135, 180),
             clip_denoised=args.clip_denoised,
             model_kwargs=model_kwargs,
             progress=True,
@@ -103,7 +103,7 @@ def main():
 
         if vae is not None:
             sample /= 0.18215
-            sample = vae.decode(sample.type(th.float16)).sample
+            sample = vae.decode(sample.type(th.float16), model_kwargs['y'].type(th.float16))#.sample
 
         sample = (sample + 1) / 2.0
 

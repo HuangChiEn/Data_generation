@@ -76,6 +76,56 @@ def discretized_gaussian_log_likelihood(x, *, means, log_scales):
     assert log_probs.shape == x.shape
     return log_probs
 
+def variance_KL_loss(latents, noisy_latents, timesteps, model_pred_mean, model_pred_var, noise_scheduler,posterior_mean_coef1, posterior_mean_coef2, posterior_log_variance_clipped):
+    model_pred_mean = model_pred_mean.detach()
+    true_mean = (
+            posterior_mean_coef1.to(device=timesteps.device)[timesteps].float()[..., None, None, None] * latents
+            + posterior_mean_coef2.to(device=timesteps.device)[timesteps].float()[..., None, None, None] * noisy_latents
+    )
+
+    true_log_variance_clipped = posterior_log_variance_clipped.to(device=timesteps.device)[timesteps].float()[
+        ..., None, None, None]
+
+    if noise_scheduler.variance_type == "learned":
+        model_log_variance = model_pred_var
+        #model_pred_var = th.exp(model_log_variance)
+    else:
+        min_log = true_log_variance_clipped
+        max_log = th.log(noise_scheduler.betas.to(device=timesteps.device)[timesteps].float()[..., None, None, None])
+        frac = (model_pred_var + 1) / 2
+        model_log_variance = frac * max_log + (1 - frac) * min_log
+        #model_pred_var = th.exp(model_log_variance)
+
+    sqrt_recip_alphas_cumprod = th.sqrt(1.0 / noise_scheduler.alphas_cumprod)
+    sqrt_recipm1_alphas_cumprod = th.sqrt(1.0 / noise_scheduler.alphas_cumprod - 1)
+
+    pred_xstart = (sqrt_recip_alphas_cumprod.to(device=timesteps.device)[timesteps].float()[
+                       ..., None, None, None] * noisy_latents
+                   - sqrt_recipm1_alphas_cumprod.to(device=timesteps.device)[timesteps].float()[
+                       ..., None, None, None] * model_pred_mean)
+
+    model_mean = (
+            posterior_mean_coef1.to(device=timesteps.device)[timesteps].float()[..., None, None, None] * pred_xstart
+            + posterior_mean_coef2.to(device=timesteps.device)[timesteps].float()[..., None, None, None] * noisy_latents
+    )
+
+    # model_mean = out["mean"] model_log_variance = out["log_variance"]
+    kl = normal_kl(
+        true_mean, true_log_variance_clipped, model_mean, model_log_variance
+    )
+    kl = kl.mean() / np.log(2.0)
+
+    decoder_nll = -discretized_gaussian_log_likelihood(
+        latents, means=model_mean, log_scales=0.5 * model_log_variance
+    )
+    assert decoder_nll.shape == latents.shape
+    decoder_nll = decoder_nll.mean() / np.log(2.0)
+
+    # At the first timestep return the decoder NLL,
+    # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
+    kl_loss = th.where((timesteps == 0), decoder_nll, kl).mean()
+    return kl_loss
+
 def get_variance(noise_scheduler):
     alphas_cumprod_prev = th.cat([th.tensor([1.0]), noise_scheduler.alphas_cumprod[:-1]])
 

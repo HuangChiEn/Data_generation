@@ -122,6 +122,7 @@ def _list_image_files_recursively(data_dir,catch_type=None):
 
 
 class ImageDataset(Dataset):
+    VAE_SCALE = 0.18215
     def __init__(
         self,
         dataset_mode,
@@ -158,30 +159,25 @@ class ImageDataset(Dataset):
 
     def __getitem__(self, idx):
         if self.catch_mode:
-            if self.dataset_mode == 'cityscapes':
-
-                file = torch.load(self.local_images[idx])
-                mean = file['x']['mean']
-                std = file['x']['std']
-                sample = torch.randn(mean.shape)
+            vae_cache = torch.load(self.local_images[idx])
+            # customized callback to deal with cache file
+            # default procedure to load the cache file for VAE & VQVAE..
+            if isinstance(vae_cache['x'], dict):
+                mean, std = vae_cache['x']['mean'], vae_cache['x']['std']
+                # normal_ make more efficient with std=1, mean=0 (exactly as randn)
+                # https://pytorch.org/docs/stable/generated/torch.randn.html
+                sample = torch.cuda.FloatTensor(**mean.shape).normal_(mean=0, std=1)
                 x = mean + std * sample
-                x = x * 0.18215
-                if self.mask_emb == "resize":
-                    return x, file['label']
-                elif self.mask_emb == "vae_encode":
-                    label_latent = []
-                    mean = file['label']['mean']
-                    std = file['label']['std']
+                x = x * ImageDataset.VAE_SCALE
+            elif isinstance(vae_cache['x'], list):
+                ret = random.randint(0, len(vae_cache['x']) - 1)
+                x = vae_cache['x'][ret] * ImageDataset.VAE_SCALE
+                vae_cache['label']["segmap"] = vae_cache['label']["segmap"][ret]
+            else:
+                # print("error")
+                x = vae_cache['x'] * ImageDataset.VAE_SCALE
+            return x, {"y": vae_cache['label']["segmap"]}
 
-                    for m,s in zip(mean, std):
-                        sample = torch.randn(m.shape)
-                        sample = m + s * sample
-                        sample = sample * 0.18215
-                        label_latent.append(sample)
-                    y = torch.cat(label_latent, dim=0)
-                    return x, {"y": y}
-                else:
-                    return x, file['label']
         else:
             path = self.local_images[idx]
             with bf.BlobFile(path, "rb") as f:

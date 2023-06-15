@@ -54,6 +54,7 @@ if is_wandb_available():
     import wandb
 
 from taming.models.vqvae import VQSub
+from utils.loss import get_variance, variance_KL_loss
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.16.0.dev0")
@@ -213,7 +214,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="testourVQVAE-SDM-SPM",
+        default="testourVQVAE-SDM-learnvar",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
@@ -519,8 +520,13 @@ def main():
             ).repo_id
 
     # Load scheduler and models.
-    noise_scheduler = DDPMScheduler.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="scheduler")
-
+    # noise_scheduler = DDPMScheduler.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="scheduler")
+    # noise_scheduler.variance_type = "learned_range"
+    noise_scheduler = DDPMScheduler(variance_type="learned_range")
+    # noise_scheduler = DDPMScheduler(variance_type="learned_range", beta_end=0.012,beta_start=0.00085
+    #                                 , beta_schedule="scaled_linear",num_train_timesteps=1000, skip_prk_steps=True
+    #                                 , steps_offset=1,trained_betas=None,clip_sample=False)
+    print(noise_scheduler.variance_type)
     #vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae", revision=args.revision)
     #vae = VQModel.from_pretrained("CompVis/ldm-super-resolution-4x-openimages", subfolder="vqvae", revision=args.revision)
     vae = VQSub.from_pretrained("/data/harry/Data_generation/diffusers-main/VQVAE/VQ_model/70ep", subfolder="vqvae")
@@ -561,7 +567,7 @@ def main():
         image_size = laten_size,
         in_channels=vae.config.latent_channels,
         model_channels=128,
-        out_channels=vae.config.latent_channels,
+        out_channels=vae.config.latent_channels*2 if "learned" in noise_scheduler.variance_type else vae.config.latent_channels,
         num_res_blocks=2,
         attention_resolutions=(8, 16, 32),
         dropout=0,
@@ -575,7 +581,7 @@ def main():
         num_classes=args.segmap_channels + 1,
         mask_emb="resize",
         use_checkpoint=True,
-        SPADE_type="SPM",
+        SPADE_type="spade",
     )
 
     # Create EMA for the unet.
@@ -836,6 +842,7 @@ def main():
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(global_step, args.max_train_steps), disable=not accelerator.is_local_main_process)
     progress_bar.set_description("Steps")
+    posterior_mean_coef1, posterior_mean_coef2, posterior_log_variance_clipped = get_variance(noise_scheduler)
 
     for epoch in range(first_epoch, args.num_train_epochs):
         unet.train()
@@ -887,7 +894,16 @@ def main():
                 model_pred = unet(noisy_latents, segmap, timesteps).sample
 
                 if args.snr_gamma is None:
+                    model_pred_var = None
+                    if "learn" in noise_scheduler.variance_type:
+                        assert model_pred.shape[1] == noisy_latents.shape[1] * 2
+                        model_pred, model_pred_var = torch.split(model_pred, noisy_latents.shape[1], dim=1)
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+                    if "learn" in noise_scheduler.variance_type:
+                        loss += variance_KL_loss(latents, noisy_latents, timesteps, model_pred, model_pred_var,
+                                                 noise_scheduler,
+                                                 posterior_mean_coef1, posterior_mean_coef2,
+                                                 posterior_log_variance_clipped)
                 else:
                     # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
                     # Since we predict the noise instead of x_0, the original formulation is slightly changed.
