@@ -43,7 +43,7 @@
 ## SDM Example Results
 * **Cityscapes:**
 
-![image](example/cityspace.png)
+![image](https://github.com/HuangChiEn/Data_generation/blob/main/example/cityscape.png)
 
 ## Prerequisites
 - Linux
