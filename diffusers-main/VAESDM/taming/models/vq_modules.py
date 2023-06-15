@@ -319,6 +319,7 @@ class VectorQuantizer2(nn.Module):
             indices = indices.reshape(-1) # flatten again
 
         # get quantized latent vectors
+        indices = indices.type(torch.float32)
         z_q = self.embedding(indices)
 
         if shape is not None:

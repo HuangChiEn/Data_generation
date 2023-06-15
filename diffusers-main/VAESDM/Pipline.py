@@ -210,7 +210,7 @@ class SDMLDMPipeline(DiffusionPipeline):
                 image.append(l)
         else:
             latents /= self.vae.config.scaling_factor#(0.18215)
-            image = self.vae.decode(latents, segmap)
+            image = self.vae.decode_code(latents, segmap)
 
             image = (image / 2 + 0.5).clamp(0, 1)
             image = image.cpu().permute(0, 2, 3, 1).numpy()

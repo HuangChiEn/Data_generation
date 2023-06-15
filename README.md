@@ -43,9 +43,7 @@
 ## SDM Example Results
 * **Cityscapes:**
 
-<p align='center'>  
-  <img src='assets/cityscapes.png'/>
-</p>
+![image](https://github.com/HuangChiEn/Data_generation/blob/main/example/cityscape.png)
 
 ## Prerequisites
 - Linux
