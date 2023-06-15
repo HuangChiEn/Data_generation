@@ -166,8 +166,9 @@ class Cityscape_ds(Dataset):
             inst_im = inst_im[:, ::-1].copy() 
 
         img = img.astype(np.float32) / 127.5 - 1
-        out_dict = {'path':im_path, 'label_ori':cls_im, 'label':cls_im[None, ], 
-                    'instance':inst_im[None, ], 'clr_instance':clr_msk_im[None, ]}
+        
+        out_dict = {'path':im_path, 'label_ori':cls_im, 'label':cls_im[None, ...], 
+                    'instance':inst_im[None, ...], 'clr_instance':clr_msk_im[None, ...]}
                     
         # switch to channel first format due to torch tensor..
         return {"pixel_values":np.transpose(img, [2, 0, 1]), "label":out_dict}
@@ -242,7 +243,7 @@ class Kitti_cache:
         return len(self.cache_path)
 
 class Kitti_ds:
-    def __init__(self, data_dir, subset, resize_size, random_flip=True, rnd_rng=True):
+    def __init__(self, data_dir, subset, resize_size, random_flip=True, rnd_rng=True, interval=15):
         
         def grap_path(data_dir):
             # Path object glob method return iterator, so we immediately turn it into list
@@ -251,13 +252,35 @@ class Kitti_ds:
             imgs_path.sort()
             return imgs_path
 
+        def sample_interval(imgs_path, interval):
+            from os.path import sep
+            path_lst = []
+            prv_dr, cur_dr = '', ''
+            cnt = 0
+            for path in imgs_path:
+                path = str(path)
+                for dr in path.split(sep):
+                    if 'drive' in dr: cur_dr = dr ; break
+                
+                if cur_dr != prv_dr:
+                    cnt = 0 ; prv_dr = cur_dr
+
+                if (cnt % interval) == 0:
+                    path_lst.append(path)
+                
+                cnt += 1
+            
+            return path_lst 
+
+
         super().__init__()
         self.resize_size = resize_size
         self.random_flip = random_flip
         self.rnd_rng = rnd_rng
         self.subset = subset
-        data_dir = Path(data_dir)
-        self.imgs_path = grap_path(data_dir)
+        
+        imgs_path = grap_path( Path(data_dir) )
+        self.imgs_path = sample_interval(imgs_path, interval)
 
     def __pil_read(self, path, read_mode='RGB'): 
         with Image.open(path) as meta_im:
@@ -305,7 +328,7 @@ class Kitti_ds:
         # resize img & labels
         # dwn img with better quality : https://pillow.readthedocs.io/en/stable/handbook/concepts.html#filters-comparison-table
         img = self.__ratio_resize(img, Image.BICUBIC)
-        
+
         # center-crop (hard-code 1080, 1440 currently..)
         sc = 1080 // self.resize_size  
         crop_size = ( self.resize_size, 1440//sc )
@@ -317,7 +340,7 @@ class Kitti_ds:
         
         if self.random_flip and random.random() < 0.5:
             img = img[:, ::-1].copy()
-        breakpoint()
+        
         img = img.astype(np.float32) / 127.5 - 1
         # switch to channel first format due to torch tensor..
         return {"pixel_values":np.transpose(img, [2, 0, 1]), "label":{'path':im_path} }
@@ -340,11 +363,7 @@ DS_DICT = {
 # default collate function
 def collate_fn(examples):
     segmap = {}
-    for k in examples[0]["label"].keys():
-        if k != 'path':
-            segmap[k] = torch.stack([torch.from_numpy(example["label"][k]) for example in examples])
-            segmap[k] = segmap[k].to(memory_format=torch.contiguous_format).float()    
-
+    
     pixel_values = torch.stack([torch.from_numpy(example["pixel_values"]) for example in examples])
     pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
     filename_lst = [ os.path.join(example['label']['path']) for example in examples ]
@@ -356,37 +375,48 @@ if __name__ == "__main__":
     from easy_configer.Configer import Configer
     cfger = Configer()
     cfger.cfg_from_str('''
-    [ds]
+    [ds1]
         data_dir = '/data/joseph/kitti_ds'
         resize_size = 540
         subset_type = 'train'
+
+    [ds2]
+        data_dir = '/data1/dataset/Cityscapes'
+        resize_size = 540
+        subset_type = 'train'
+
     [ld]
         batch_size = 8
         num_workers = 0
-        shuffle = False
+        shuffle = True
     ''')
 
     import torch
+    from torch.utils.data import ConcatDataset
+    import torchvision.transforms as T
 
-    train_dataset = load_data(**cfger.ds)
+    kitti_ds = load_data(**cfger.ds1)
+    city_ds = load_data(**cfger.ds2)
+    train_dataset = ConcatDataset([kitti_ds, city_ds])
+    
     data_ld = torch.utils.data.DataLoader(
         train_dataset,
         collate_fn=collate_fn,
         **cfger.ld
     )
+
     fn_lst = []
+    tnsr2pil = T.ToPILImage()
     for idx, batch in enumerate(data_ld, 0):
-        breakpoint()
-        fn_lst.extend(batch['filename'])
-        clr_msks = [ clr_inst.permute(0, 3, 1, 2) / 255. for clr_inst in batch["segmap"]['clr_instance'] ]
-        clr_msk_lst.extend(clr_msks)
+        fn = batch['filename'][0]
+        fn = os.path.basename(fn).split('.')[0]
+        
+        # Note : kitti_ds doesn't have mask..
+        #clr_msk = [ clr_inst.permute(0, 3, 1, 2) / 255. for clr_inst in batch["segmap"]['clr_instance'] ][0]
+        #tnsr2pil(clr_msk[0]).save(f'{fn}_clr.png')
 
-        segmap = preprocess_input(batch["segmap"], num_classes=34)
-        segmap = segmap.to("cuda").to(torch.float16)
-        images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = cfger.s).images
-        #img_lst.extend(list(zip(*images)))
-        img_lst.extend(images)
-
-        break  # yeah ~ take the break
+        imgs = [((img+1)*127.5)/255. for img in batch["pixel_values"]]
+        tnsr2pil(imgs[0]).save(f'tmp_im/{fn}_im.png')
+        if idx >= 65:
+            break  # yeah ~ take the break
     
-    breakpoint()

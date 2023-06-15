@@ -11,7 +11,7 @@ from pytorch_lightning.trainer import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback, LearningRateMonitor
 from pytorch_lightning.utilities import rank_zero_only
 
-from taming.data import cityscape_ds
+from taming.data import vq_dataset
 #from taming.data.utils import custom_collate
 from taming.data.cityscape_ds import collate_fn as custom_collate
 from pytorch_lightning.strategies.ddp import DDPStrategy
@@ -328,16 +328,31 @@ def main():
 
     from pytorch_lightning.loggers import WandbLogger
     wandb_logger = WandbLogger(name="CatSegmap VQModel")
+    
+    from torch.utils.data import ConcatDataset
 
-    train_loader = cityscape_ds.load_data(
-        data_dir=config.data.params.data_dir,
-        resize_size=config.data.params.image_size,
+    city_ds = vq_dataset.load_data(
+        data_dir=config.ds1.data_dir,
+        resize_size=config.ds1.image_size,
         subset_type='train',
-        ret_dataset=False,
-        data_ld_kwargs={'batch_size': 6, 'num_workers': 8}
+        ret_dataset=True,
+    )
+    kitti_ds = vq_dataset.load_data(
+        data_dir=config.ds2.data_dir,
+        resize_size=config.ds2.image_size,
+        subset_type='train',
+        ret_dataset=True,
+    )
+    train_dataset = ConcatDataset([kitti_ds, city_ds])
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        collate_fn=collate_fn
+        batch_size = 8,
+        num_workers = 0,
+        shuffle=True
     )
 
-    val_loader = cityscape_ds.load_data(
+    val_loader = vq_dataset.load_data(
         data_dir=config.data.params.data_dir,
         resize_size=config.data.params.image_size,
         subset_type='val',
