@@ -116,8 +116,7 @@ def get_pipeline(pipe_type, pipe_path=None, unet=None, vae=None):
 def get_cfg_str():
     return '''
     seed = 42@int
-    
-    num_inference_steps = 50@int
+    num_inference_steps = 1000@int
     scheduler_type = DDPM@str
     save_dir = Gen_results@str
     num_save_im = 8@int
@@ -131,9 +130,9 @@ def get_cfg_str():
         subset_type = val@str
 
     [diff_mod]
-        unet_path = /data/harry/Data_generation/diffusers-main/VAESDM/ourVQVAE-SDM@str
+        unet_path = /data/harry/Data_generation/diffusers-main/VAESDM/testourVQVAE-SDM-learnvar@str
         #unet_path = /data/harry/Data_generation/OUTPUT/Cityscapes270-SDM-256CH-500epoch/model120000.pt@str
-        numk_ckpt = 30@int
+        numk_ckpt = 15@int
         vae_type = VQ@str
 
     [pipe]
@@ -152,7 +151,7 @@ if __name__ == "__main__":
     unet, vae = get_diffusion_modules(**cfger.diff_mod)
 
     pipe = get_pipeline(**cfger.pipe, unet=unet, vae=vae)
-    pipe = scheduler_setup(pipe, cfger.scheduler_type, from_config = "CompVis/stable-diffusion-v1-4")
+    pipe = scheduler_setup(pipe, cfger.scheduler_type)#, from_config = "CompVis/stable-diffusion-v1-4")
     pipe = pipe.to("cuda")
 
     makedirs(cfger.save_dir, exist_ok=True)

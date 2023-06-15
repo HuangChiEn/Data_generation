@@ -315,6 +315,7 @@ class SDMPipeline(DiffusionPipeline):
             #noise_prediction = noise_prediction[:, :3]
 
             # compute the previous noisy sample x_t -> x_t-1
+            #breakpoint()
             latents = self.scheduler.step(noise_prediction, t, latents, **extra_kwargs).prev_sample
 
         # decode the image latents with the VAE

@@ -51,7 +51,7 @@ from diffusers.utils import randn_tensor
 if is_wandb_available():
     import wandb
 
-from utils.loss import normal_kl, discretized_gaussian_log_likelihood, get_variance
+from utils.loss import get_variance, variance_KL_loss
 
 
 
@@ -491,8 +491,7 @@ def main():
 
     # Load scheduler and models.
     #noise_scheduler = DDPMScheduler.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="scheduler")
-    noise_scheduler = DDPMScheduler()
-    noise_scheduler.variance_type="learned"
+    noise_scheduler = DDPMScheduler(variance_type="learned_range")
     #vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae", revision=args.revision)
     # Freeze vae
     #vae.requires_grad_(False)
@@ -900,47 +899,10 @@ def main():
                     if "learn" in noise_scheduler.variance_type:
                         assert model_pred.shape[1] == noisy_latents.shape[1] * 2
                         model_pred, model_pred_var = torch.split(model_pred, noisy_latents.shape[1], dim=1)
-
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
-
                     if "learn" in noise_scheduler.variance_type:
-                        model_pred_mean = model_pred.detach()
-
-                        true_log_variance_clipped = posterior_log_variance_clipped.to(device=timesteps.device)[timesteps].float()[..., None, None, None]
-
-
-
-                        true_posterior_mean = (
-                                posterior_mean_coef1.to(device=timesteps.device)[timesteps].float()[..., None, None, None] * latents
-                                + posterior_mean_coef2.to(device=timesteps.device)[timesteps].float()[..., None, None, None] * noisy_latents
-                        )
-
-                        if noise_scheduler.variance_type == "learn_range":
-                            min_log = true_log_variance_clipped
-                            max_log = torch.log(noise_scheduler.betas[timesteps].float()[..., None, None, None])
-                            frac = (model_pred_var + 1) / 2
-                            model_log_variance = frac * max_log + (1 - frac) * min_log
-                            model_pred_var = torch.exp(model_log_variance)
-                        else:
-                            model_log_variance = model_pred_var
-                            model_pred_var = torch.exp(model_log_variance)
-
-                        kl = normal_kl(
-                            true_posterior_mean, true_log_variance_clipped, model_pred_mean, model_log_variance
-                        )
-                        kl = kl.mean() / np.log(2.0)
-
-                        decoder_nll = -discretized_gaussian_log_likelihood(
-                            latents, means=model_pred_mean, log_scales=0.5 * model_log_variance
-                        )
-                        assert decoder_nll.shape == latents.shape
-                        decoder_nll = decoder_nll.mean() / np.log(2.0)
-
-                        # At the first timestep return the decoder NLL,
-                        # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
-                        kl_loss = torch.where((timesteps == 0), decoder_nll, kl).mean()
-
-                        loss += kl_loss
+                        loss += variance_KL_loss(latents, noisy_latents, timesteps, model_pred, model_pred_var, noise_scheduler,
+                                                 posterior_mean_coef1, posterior_mean_coef2, posterior_log_variance_clipped)
                 else:
                     # Compute loss-weights as per Section 3.4 of https://arxiv.org/abs/2303.09556.
                     # Since we predict the noise instead of x_0, the original formulation is slightly changed.
@@ -955,8 +917,6 @@ def main():
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
                     loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
                     loss = loss.mean()
-
-
 
                 # Gather the losses across all processes for logging (if we use distributed training).
                 avg_loss = accelerator.gather(loss.repeat(args.train_batch_size)).mean()

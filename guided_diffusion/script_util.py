@@ -6,6 +6,7 @@ from .respace import SpacedDiffusion, space_timesteps
 from .unet import SuperResModel, UNetModel, EncoderUNetModel
 from diffusers import AutoencoderKL
 import torch
+from .taming.models.vqvae import VQSub
 
 NUM_CLASSES = 1000
 
@@ -110,7 +111,8 @@ def create_model_and_diffusion(
 ):
     # load the pretrain weight from SD
     if use_vae and catch_path is None:
-        vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae") #runwayml/stable-diffusion-v1-5
+        #vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae") #runwayml/stable-diffusion-v1-5
+        vae = VQSub.from_pretrained("/data/harry/Data_generation/diffusers-main/VQVAE/VQ_model/70ep", subfolder="vqvae")
         if use_fp16:
             vae.to(dtype=torch.float16)
         vae.requires_grad_(False)
@@ -150,7 +152,6 @@ def create_model_and_diffusion(
         timestep_respacing=timestep_respacing,
     )
 
-
     return model, diffusion, vae
 
 
@@ -181,7 +182,7 @@ def create_model(
         if use_vae:
 
             # channel_mult = (1, 2, 3, 4)
-            channel_mult = (1, 1, 2, 2, 3, 3)
+            channel_mult = (1, 1, 2, 2, 4, 4)
             # if image_size == 540:
             #     channel_mult = (1, 2, 3, 4)
             # elif image_size == 270:
@@ -199,6 +200,8 @@ def create_model(
             channel_mult = (1, 2, 3, 4)
         elif image_size == 270:
             channel_mult = (1, 1, 2, 4, 4)
+        elif image_size == 540:
+            channel_mult = (1, 1, 2, 2, 4, 4)
         else:
             raise ValueError(f"unsupported image size: {image_size}")
     else:
@@ -210,7 +213,7 @@ def create_model(
 
     num_classes = num_classes if no_instance else num_classes + 1
 
-    input_channel = 4 if use_vae else 3
+    input_channel = 3
     return UNetModel(
         image_size=image_size,
         in_channels=input_channel,
@@ -287,7 +290,7 @@ def create_classifier(
 ):
     if use_vae:
         #channel_mult = (1, 2, 3, 4)
-        channel_mult = (1, 1, 2, 2, 3, 3)
+        channel_mult = (1, 1, 2, 2, 4, 4)
         # if image_size == 540:
         #     channel_mult = (1, 2, 3, 4)
         # elif image_size == 270:
@@ -304,6 +307,8 @@ def create_classifier(
         channel_mult = (1, 2, 3, 4)
     elif image_size == 270:
         channel_mult = (1, 1, 2, 4, 4)
+    elif image_size == 540:
+        channel_mult = (1, 1, 2, 2, 4, 4)
     else:
         raise ValueError(f"unsupported image size: {image_size}")
 
