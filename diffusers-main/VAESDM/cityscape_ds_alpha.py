@@ -155,7 +155,7 @@ class Cityscape_ds(Dataset):
 
 class Cityscape_cache(Dataset):
     VAE_SCALE = 0.18215
-
+    #VAE_SCALE = 7.706491063029163
     def __init__(self, cache_dir, cache_file_callbk=None):
         self.cache_path = list( (cache_dir).glob('train/*/*.pt') )
         self.cache_file_callbk = cache_file_callbk

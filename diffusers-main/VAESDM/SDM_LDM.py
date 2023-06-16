@@ -141,7 +141,7 @@ def parse_args():
         "--pretrained_model_name_or_path",
         type=str,
         default="HHRI-SSL/LDM-unconditioned",
-        required=True,
+        required=False,
         help="Path to pretrained model or model identifier from huggingface.co/models.",
     )
     parser.add_argument(
@@ -214,7 +214,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="testourVQVAE-SDM-learnvar",
+        default="testourVQVAE-SDM-SPM-learnvar",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
@@ -581,7 +581,7 @@ def main():
         num_classes=args.segmap_channels + 1,
         mask_emb="resize",
         use_checkpoint=True,
-        SPADE_type="spade",
+        SPADE_type="SPM",
     )
 
     # Create EMA for the unet.

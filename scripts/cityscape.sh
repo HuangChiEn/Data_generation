@@ -20,8 +20,8 @@ export MANPATH=${MPI_HOME}/share/man:$MANPATH
 
 
 # Testing
-export OPENAI_LOGDIR='../OUTPUT/Cityscapes270-SDM-TEST'
-mpiexec -np 1 --allow-run-as-root python ../image_sample.py --data_dir /data1/dataset/Cityscapes --dataset_mode cityscapes --attention_resolutions 32,16,8 --diffusion_steps 1000 --image_size 270 --learn_sigma True \
-       --noise_schedule linear --num_channels 256 --num_head_channels 64 --num_res_blocks 2 --resblock_updown True --use_fp16 True --use_scale_shift_norm True --num_classes 34 \
-       --class_cond True --no_instance False --batch_size 8 --num_samples 500 --model_path ../OUTPUT/Cityscapes270-SDM-256CH-500epoch/model120000.pt --results_path ../RESULTS/tete --s 1 --use_vae False \
+export OPENAI_LOGDIR='../OUTPUT/Cityscapes540-VQSDM-256CH-31kstep-TEST'
+mpiexec -np 1 --allow-run-as-root python ../image_sample.py --data_dir /data1/dataset/Cityscapes --dataset_mode cityscapes --attention_resolutions 32,16,8 --diffusion_steps 1000 --image_size 540 --learn_sigma True \
+       --noise_schedule linear --num_channels 128 --num_head_channels 8 --num_res_blocks 2 --resblock_updown True --use_fp16 True --use_scale_shift_norm True --num_classes 34 \
+       --class_cond True --no_instance False --batch_size 8 --num_samples 500 --model_path ../OUTPUT/Cityscapes540-VQSDM-256CH-310ksteptest/model031001.pt --results_path ../RESULTS/Cityscapes540-VQSDM-256CH-31kstep --s 1.2 --use_vae True \
        --mask_emb 'resize'

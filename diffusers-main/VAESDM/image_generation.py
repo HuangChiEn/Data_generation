@@ -132,7 +132,7 @@ def get_cfg_str():
     [diff_mod]
         unet_path = /data/harry/Data_generation/diffusers-main/VAESDM/testourVQVAE-SDM-learnvar@str
         #unet_path = /data/harry/Data_generation/OUTPUT/Cityscapes270-SDM-256CH-500epoch/model120000.pt@str
-        numk_ckpt = 18@int
+        numk_ckpt = 25@int
         vae_type = VQ@str
 
     [pipe]

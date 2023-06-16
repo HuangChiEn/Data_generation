@@ -311,19 +311,35 @@ class VectorQuantizer2(nn.Module):
 
         return z_q, loss, (perplexity, min_encodings, min_encoding_indices)
 
+    # def get_codebook_entry(self, indices, shape):
+    #     # shape specifying (batch, height, width, channel)
+    #     if self.remap is not None:
+    #         indices = indices.reshape(shape[0],-1) # add batch axis
+    #         indices = self.unmap_to_all(indices)
+    #         indices = indices.reshape(-1) # flatten again
+    #
+    #     # get quantized latent vectors
+    #     indices = indices.type(torch.float32)
+    #     z_q = self.embedding(indices)
+    #
+    #     if shape is not None:
+    #         z_q = z_q.view(shape)
+    #         # reshape back to match original input shape
+    #         z_q = z_q.permute(0, 3, 1, 2).contiguous()
+    #
+    #     return z_q
     def get_codebook_entry(self, indices, shape):
         # shape specifying (batch, height, width, channel)
-        if self.remap is not None:
-            indices = indices.reshape(shape[0],-1) # add batch axis
-            indices = self.unmap_to_all(indices)
-            indices = indices.reshape(-1) # flatten again
+        # TODO: check for more easy handling with nn.Embedding
+        min_encodings = torch.zeros(indices.shape[0], self.n_e).to(indices)
+        min_encodings.scatter_(1, indices[:,None], 1)
 
         # get quantized latent vectors
-        indices = indices.type(torch.float32)
-        z_q = self.embedding(indices)
+        z_q = torch.matmul(min_encodings.float(), self.embedding.weight)
 
         if shape is not None:
             z_q = z_q.view(shape)
+
             # reshape back to match original input shape
             z_q = z_q.permute(0, 3, 1, 2).contiguous()
 

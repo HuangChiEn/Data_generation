@@ -76,6 +76,7 @@ class VQSub(ModelMixin, ConfigMixin):
 
     def decode_code(self, code_b, segmap):
         quant_b = self.quantize.get_codebook_entry(code_b, code_b.shape)
+        #quant_b, _, _ = self.quantize(code_b)
         dec = self.decode(quant_b, segmap)
         return dec
 

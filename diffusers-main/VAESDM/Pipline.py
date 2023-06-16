@@ -200,8 +200,8 @@ class SDMLDMPipeline(DiffusionPipeline):
         if every_step_save is not None:
             image = []
             for i, l in enumerate(step_latent):
-                print(i)
                 l /= self.vae.config.scaling_factor  # (0.18215)
+                #latents /= 7.706491063029163
                 l = self.vae.decode(l, segmap)
                 l = (l / 2 + 0.5).clamp(0, 1)
                 l = l.cpu().permute(0, 2, 3, 1).numpy()
@@ -210,8 +210,8 @@ class SDMLDMPipeline(DiffusionPipeline):
                 image.append(l)
         else:
             latents /= self.vae.config.scaling_factor#(0.18215)
-            image = self.vae.decode_code(latents, segmap)
-
+            #latents /= 7.706491063029163
+            image = self.vae.decode(latents, segmap)
             image = (image / 2 + 0.5).clamp(0, 1)
             image = image.cpu().permute(0, 2, 3, 1).numpy()
             if output_type == "pil":
