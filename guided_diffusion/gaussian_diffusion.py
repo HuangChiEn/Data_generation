@@ -320,6 +320,8 @@ class GaussianDiffusion:
                 pred_xstart = process_xstart(
                     self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
                 )
+
+            # pred_prev_sample = pred_original_sample_coeff * pred_original_sample + current_sample_coeff * sample
             model_mean, _, _ = self.q_posterior_mean_variance(
                 x_start=pred_xstart, x_t=x, t=t
             )
@@ -446,7 +448,22 @@ class GaussianDiffusion:
             out["mean"] = self.condition_mean(
                 cond_fn, out, x, t, model_kwargs=model_kwargs
             )
-        sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise #
+        
+        # (1) variance (current_beta not align! so min_log, max_log incorrect!)
+        # self._get_variance -> frac * max_log + (1 - frac) * min_log
+        # p_mean_variance(...).log_variance ->  frac * max_log + (1 - frac) * min_log
+        
+        # _variance = self._get_variance(t, predicted_variance=modelout_mean)
+        # out["log_variance"] = p_mean_variance(...).log_variance
+
+        # variance = torch.exp(0.5 * _variance) * randn_tensor(...)
+        # (-- *      th.exp(0.5 * out["log_variance"]) * noise)
+
+        # pred_prev_sample
+        # p_mean_variance(...).mean -> 
+
+        #      pred_prev_sample +          variance
+        sample = out["mean"] + (nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise) #
         return {"sample": sample, "pred_xstart": out["pred_xstart"]}
 
     def p_sample_loop(
