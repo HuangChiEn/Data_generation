@@ -69,6 +69,16 @@ class VQSub(ModelMixin, ConfigMixin):
         quant, emb_loss, info = self.quantize(h)
         return quant, emb_loss, info
 
+    def encode_latent(self, x):
+        h = self.encoder(x)
+        h = self.quant_conv(h)
+        return h
+
+    def decode_latent(self, x, segmap):
+        quant, emb_loss, info = self.quantize(x)
+        dec = self.decode(quant, segmap)
+        return dec
+
     def decode(self, quant, segmap):
         quant = self.post_quant_conv(quant)
         dec = self.decoder(quant, segmap)

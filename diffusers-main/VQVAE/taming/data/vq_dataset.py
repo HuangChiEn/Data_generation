@@ -363,7 +363,15 @@ DS_DICT = {
 # default collate function
 def collate_fn(examples):
     segmap = {}
-    
+    ret = random.randint(0, 1)
+    for k in examples[0]["label"].keys():
+        if k != 'path':
+            if isinstance(examples[0]["label"][k], list):
+                segmap[k] = torch.stack([torch.from_numpy(example["label"][k][ret]) for example in examples])
+            else:
+                segmap[k] = torch.stack([torch.from_numpy(example["label"][k]) for example in examples])
+            segmap[k] = segmap[k].to(memory_format=torch.contiguous_format).float()
+
     pixel_values = torch.stack([torch.from_numpy(example["pixel_values"]) for example in examples])
     pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
     filename_lst = [ os.path.join(example['label']['path']) for example in examples ]

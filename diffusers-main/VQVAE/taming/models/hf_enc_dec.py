@@ -74,7 +74,7 @@ class Encoder(nn.Module):
         conv_out_channels = 2 * out_channels if double_z else out_channels
         self.conv_out = nn.Conv2d(block_out_channels[-1], conv_out_channels, 3, padding=1)
 
-        self.gradient_checkpointing = True
+        self.gradient_checkpointing = False
 
     def forward(self, x):
         sample = x
@@ -128,7 +128,12 @@ class Decoder(nn.Module):
         **ignore_kwargs
     ):
         super().__init__()
-        up_block_types*=len(block_out_channels)
+        #need to fix the bug
+        # print(block_out_channels)
+        # print(up_block_types)
+        if len(block_out_channels) != len(up_block_types):
+            up_block_types*=len(block_out_channels)
+
         self.use_SPADE = use_SPADE
         self.segmap_channels = segmap_channels
         if self.use_SPADE:
@@ -209,15 +214,18 @@ class Decoder(nn.Module):
 
             # middle
             sample = torch.utils.checkpoint.checkpoint(create_custom_forward(self.mid_block), sample, segmap)
+            #sample = sample
             sample = sample.to(upscale_dtype)
 
             # up
             if segmap is not None:
                 for up_block in self.up_blocks:
-                    sample = torch.utils.checkpoint.checkpoint(create_custom_forward(up_block), sample, segmap)
+                    #sample = torch.utils.checkpoint.checkpoint(create_custom_forward(up_block), sample, segmap)
+                    sample = up_block(sample, segmap)
             else:
                 for up_block in self.up_blocks:
-                    sample = torch.utils.checkpoint.checkpoint(create_custom_forward(up_block), sample)
+                    #sample = torch.utils.checkpoint.checkpoint(create_custom_forward(up_block), sample)
+                    sample = up_block(sample)
         else:
             # middle
             sample = self.mid_block(sample, segmap)
@@ -229,8 +237,10 @@ class Decoder(nn.Module):
                     sample = up_block(sample, segmap)
             else:
                 for up_block in self.up_blocks:
+                    print(up_block.named_children)
                     sample = up_block(sample)
 
+        #print(sample)
         # post-process
         sample = self.conv_norm_out(sample)
         sample = self.conv_act(sample)

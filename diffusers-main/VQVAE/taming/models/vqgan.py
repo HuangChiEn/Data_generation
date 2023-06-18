@@ -29,7 +29,7 @@ class VQModel(pl.LightningModule):
         
         self.vqvae = VQSub(**ddconfig)
         self.automatic_optimization = False
-        self.frequency = 1
+
         self.frequency = 1
         if ckpt_path is not None:
             self.init_from_ckpt(ckpt_path, ignore_keys=ignore_keys)
@@ -39,6 +39,8 @@ class VQModel(pl.LightningModule):
             self.register_buffer("colorize", torch.randn(3, colorize_nlabels, 1, 1))
         if monitor is not None:
             self.monitor = monitor
+        self.use_SPADE = ddconfig["use_SPADE"]
+        # print("use spade:", self.use_SPADE)
 
     def init_from_ckpt(self, path, ignore_keys=list()):
         sd = torch.load(path, map_location="cpu")["state_dict"]
@@ -57,12 +59,18 @@ class VQModel(pl.LightningModule):
 
     def get_input(self, batch, k):
         x = batch["pixel_values"]
-        y = batch["segmap"]
-        y = self.preprocess_input(y, 34)
+        if self.use_SPADE:
+            y = batch["segmap"]
+            y = self.preprocess_input(y, 34)
+            y = y.float()
+        else:
+            y = None
+
         if len(x.shape) == 3:
             x = x[..., None]
+        x = x.float()
         #x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
-        return x.float(), y.float()
+        return x, y
 
     def training_step(self, batch, batch_idx):
         x, y = self.get_input(batch, self.image_key)
@@ -80,7 +88,7 @@ class VQModel(pl.LightningModule):
         opt_ae.step()
         
         # discriminator
-        discloss, log_dict_disc = self.loss(qloss, x, xrec, 1, self.global_step,
+        discloss, log_dict_disc = self.loss(qloss, x.detach(), xrec, 1, self.global_step,
                                         last_layer=self.get_last_layer(), split="train")
         #self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
         self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
@@ -142,6 +150,7 @@ class VQModel(pl.LightningModule):
 
     def preprocess_input(self, data, num_classes):
         # move to GPU and change data types
+        print(data)
         data['label'] = data['label'].long()
 
         # create one-hot label map
@@ -176,4 +185,4 @@ class VQModel(pl.LightningModule):
         epoch = self.current_epoch # type: ignore
         if epoch % self.frequency == 0:
             #self.log_images()
-            self.vqvae.save_pretrained(os.path.join(f"./NOSPADE_VQ_model/{epoch}ep", "vqvae"))
+            self.vqvae.save_pretrained(os.path.join(f"./test_VQ_model_GPU/{epoch}ep", "vqvae"))

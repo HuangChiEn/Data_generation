@@ -60,6 +60,7 @@ class VQSub(ModelMixin, ConfigMixin):
             use_SPADE=use_SPADE
         )
 
+        print(self.decoder)
         self.use_SPADE = use_SPADE
 #------------------------------------------------------------------------------
 ## Main part..
@@ -75,6 +76,16 @@ class VQSub(ModelMixin, ConfigMixin):
             dec = self.decoder(quant, segmap)
         else:
             dec = self.decoder(quant)
+        return dec
+
+    def encode_latent(self, x):
+        h = self.encoder(x)
+        h = self.quant_conv(h)
+        return h
+
+    def decode_latent(self, x, segmap):
+        quant, emb_loss, info = self.quantize(x)
+        dec = self.decode(quant, segmap)
         return dec
 
     def decode_code(self, code_b, segmap=None):
