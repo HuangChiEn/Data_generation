@@ -214,7 +214,7 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="testourVQVAE-latent-SDM-learnvar",
+        default="testourVQVAE-latent-SDMSPM-learnvar",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
@@ -581,7 +581,7 @@ def main():
         num_classes=args.segmap_channels + 1,
         mask_emb="resize",
         use_checkpoint=True,
-        SPADE_type="spade",
+        SPADE_type="SPM",
     )
 
     # Create EMA for the unet.
@@ -937,7 +937,8 @@ def main():
                     ema_unet.step(unet.parameters())
                 progress_bar.update(1)
                 global_step += 1
-                accelerator.log({"train_loss": train_loss}, step=global_step)
+                log_dic = {"train_loss": train_loss}
+                accelerator.log(log_dic, step=global_step)
                 train_loss = 0.0
 
                 if global_step % args.checkpointing_steps == 0:

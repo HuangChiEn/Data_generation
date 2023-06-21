@@ -7,6 +7,7 @@ from model.unet import UNetModel
 from cityscape_ds_alpha import load_data, collate_fn
 from scheduler_factory import scheduler_setup
 from taming.models.vqvae import VQSub
+import cv2
 Pipe_dispatcher = {
     'LDMPipeline' : LDMPipeline, 
     'SDMPipeline' : SDMPipeline,
@@ -91,7 +92,7 @@ def get_diffusion_modules(unet_path, numk_ckpt, vae_type=None):
         vae = AutoencoderKL.from_pretrained('CompVis/stable-diffusion-v1-4', subfolder='vae').to('cuda').to(torch.float16)
     elif vae_type == 'VQ':
         #vae = VQModel.from_pretrained('CompVis/ldm-super-resolution-4x-openimages', subfolder='vqvae').to('cuda').to(torch.float16)
-        vae = VQSub.from_pretrained('/data/harry/Data_generation/diffusers-main/VQVAE/VQ_model/70ep', subfolder='vqvae').to('cuda').to(torch.float16)
+        vae = VQSub.from_pretrained('/data/harry/Data_generation/diffusers-main/VQVAE/SPADE_VQ_model/70ep', subfolder='vqvae').to('cuda').to(torch.float16)
     else:
         raise ValueError(f"Unsupport VAE type {vae_type}")
     
@@ -119,20 +120,20 @@ def get_cfg_str():
     num_inference_steps = 1000@int
     scheduler_type = DDPM@str
     save_dir = Gen_results@str
-    num_save_im = 8@int
-    s = 1.2@float 
+    num_save_im = 1@int
+    s = 1.5@float 
     
     [dataloader]
         data_dir = /data1/dataset/Cityscapes@str
         image_size = 540@int
-        batch_size = 8@int
+        batch_size = 1@int
         num_workers = 1@int
         subset_type = val@str
 
     [diff_mod]
-        unet_path = /data/harry/Data_generation/diffusers-main/VAESDM/testourVQVAE-SDM-learnvar@str
+        unet_path = /data/harry/Data_generation/diffusers-main/VAESDM/testourVQVAE-SDM-SPM-learnvar@str
         #unet_path = /data/harry/Data_generation/OUTPUT/Cityscapes270-SDM-256CH-500epoch/model120000.pt@str
-        numk_ckpt = 25@int
+        numk_ckpt = 31@int
         vae_type = VQ@str
 
     [pipe]
@@ -140,6 +141,14 @@ def get_cfg_str():
         pipe_path = @str
     '''
 
+def test_car_image():
+    mask = cv2.imread(r"/data/harry/Data_generation/diffusers-main/car/preproc_car/mask/Fiat$$500$$2013$$White$$28_2$$1361$$image_4.png", 0)
+    h, w = mask.shape
+    x = 10
+    y = 10
+    mask_ = torch.zeros(1, 35, 540, 720)
+    mask_[0][26][x:x+h, y:y+w] = torch.tensor(mask)
+    return mask_
 
 if __name__ == "__main__":
     from torchvision.utils import save_image
@@ -163,6 +172,8 @@ if __name__ == "__main__":
     img_lst, fn_lst, clr_msk_lst = [], [], []
     generator = torch.manual_seed(cfger.seed)
 
+
+
     for idx, batch in enumerate(data_ld, 0):
         if idx >= num_itrs:
             break
@@ -172,10 +183,13 @@ if __name__ == "__main__":
         clr_msk_lst.extend(clr_msks)
 
         segmap = preprocess_input(batch["segmap"], num_classes=34)
+        segmap = test_car_image()
         segmap = segmap.to("cuda").to(torch.float16)
         images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = cfger.s).images
         #img_lst.extend(list(zip(*images)))
         img_lst.extend(images)
+
+
 
     #img_lst = map(list, map(None, *img_lst))
     #print(len(img_lst))
