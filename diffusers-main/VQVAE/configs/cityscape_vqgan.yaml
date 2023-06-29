@@ -1,0 +1,49 @@
+model:
+  base_learning_rate: 4.5e-6
+  target: taming.models.vqgan.VQModel
+  params:
+    embed_dim: 256
+    n_embed: 1024
+    ddconfig:
+      act_fn: silu
+      block_out_channels: [128, 256, 512]  # modified!
+      in_channels: 3
+      latent_channels: 3
+      layers_per_block: 2       # modified!
+      norm_num_groups: 32
+      num_vq_embeddings: 8192   # modified!
+      out_channels: 3 
+      sample_size: 256          # modified!
+      segmap_channels: 35       # because we add 34 + 1 (edge info)
+      use_SPADE: False
+      up_block_types: ["UpDecoderBlock2D",]
+
+    lossconfig:
+      target: taming.modules.losses.vqperceptual.VQLPIPSWithDiscriminator
+      params:
+        disc_conditional: False
+        disc_in_channels: 3     # because we add 34 + 1 (edge info)
+        disc_start: 6251
+        disc_weight: 0.6
+        codebook_weight: 1.0
+
+data:
+  params:
+    data_dir: /data1/dataset/Cityscapes
+    image_size: 540
+    batch_size: 6
+    num_workers: 8
+
+ds_1:
+  data_dir: /data1/dataset/Cityscapes
+  image_size: 540
+  batch_size: 6
+  num_workers: 8
+
+ds_2:
+  data_dir: /data/joseph/kitti_ds
+  image_size: 540
+  batch_size: 6
+  num_workers: 8
+
+    

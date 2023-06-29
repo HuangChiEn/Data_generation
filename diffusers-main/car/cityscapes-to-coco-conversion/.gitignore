@@ -1,0 +1,8 @@
+data/*
+assets/*
+venv/
+.idea/
+*.pyc
+*.pkl
+*.html
+*.json
