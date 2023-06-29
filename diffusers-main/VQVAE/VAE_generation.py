@@ -68,8 +68,10 @@ def main(use_fp16=True,data_dir='/data1/dataset/Cityscapes',batch_size=8,image_s
         data_dir,
         resize_size=image_size,
         subset_type='train',
+        name_qry="DA_Data/*",
         #ret_dataset=False,
         #data_ld_kwargs={'batch_size':batch_size}
+
     )
     data = torch.utils.data.DataLoader(
         dataset,

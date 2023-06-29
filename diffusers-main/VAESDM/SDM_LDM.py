@@ -214,13 +214,13 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="testourVQVAE-latent-SDMSPM-learnvar",
+        default="testourNOVQVAE-SDM-learnvar-DAimage",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
         "--cache_dir",
         type=str,
-        default="/data/harry/Cityscape_catch/our_VQVAE_latent_540_resize",
+        default="/data/harry/Cityscape_catch/our_NOSPADEVQVAE_540_resize",
         help="The directory where the downloaded models and datasets will be stored.",
     )
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
@@ -375,7 +375,7 @@ def parse_args():
     parser.add_argument(
         "--checkpointing_steps",
         type=int,
-        default=1000,
+        default=2000,
         help=(
             "Save a checkpoint of the training state every X updates. These checkpoints are only suitable for resuming"
             " training using `--resume_from_checkpoint`."
@@ -529,7 +529,7 @@ def main():
     print(noise_scheduler.variance_type)
     #vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae", revision=args.revision)
     #vae = VQModel.from_pretrained("CompVis/ldm-super-resolution-4x-openimages", subfolder="vqvae", revision=args.revision)
-    vae = VQSub.from_pretrained("/data/harry/Data_generation/diffusers-main/VQVAE/SPADE_VQ_model/70ep", subfolder="vqvae")
+    vae = VQSub.from_pretrained("/data/harry/Data_generation/diffusers-main/VQVAE/NOSPADE_VQ_model/70ep", subfolder="vqvae")
     # Freeze vae
     vae.requires_grad_(False)
 
@@ -581,7 +581,7 @@ def main():
         num_classes=args.segmap_channels + 1,
         mask_emb="resize",
         use_checkpoint=True,
-        SPADE_type="SPM",
+        SPADE_type="spade",
     )
 
     # Create EMA for the unet.

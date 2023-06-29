@@ -27,7 +27,8 @@ def load_data(
     subset_type:str = 'train', 
     ret_dataset:bool = True, 
     random_flip:bool = True, 
-    data_ld_kwargs:dict = None
+    data_ld_kwargs:dict = None,
+    name_qry:str = '*/*'
 ):
     if 'cityscape' in data_dir.lower():
         ds_mode = 'cityscape' 
@@ -52,7 +53,7 @@ def load_data(
     subset_type = ['train', 'val'] if subset_type == 'all' else [subset_type]
     all_ds = {}
     for subset in subset_type:
-        all_ds[subset] = DS_DICT['ds'][ds_mode](data_dir, subset, resize_size, random_flip)
+        all_ds[subset] = DS_DICT['ds'][ds_mode](data_dir, subset, resize_size, random_flip, True,name_qry)
 
     # wrap with torch dataloader ~
     if not ret_dataset:
@@ -63,16 +64,17 @@ def load_data(
     return all_ds[subset_type[0]] if len(subset_type) == 1 else all_ds
 
 class Cityscape_ds(Dataset):
-    def __init__(self, data_dir, subset, resize_size, random_flip=True, rnd_rng=True):
+    def __init__(self, data_dir, subset, resize_size, random_flip=True, rnd_rng=True, name_qry='*/*'):
         super().__init__()
         self.resize_size = resize_size
         self.random_flip = random_flip
         self.rnd_rng = rnd_rng
         # Path object glob method return iterator, so we immediately turn it into list
-        self.imgs_path = list( (data_dir / 'leftImg8bit' / subset).glob('*/*.png') )
+        self.imgs_path = list( (data_dir / 'leftImg8bit' / subset).rglob(f'{name_qry}.png') )
         # get corresponding label(s)
         self.classes, self.instances, self.clr_instances = [], [], []
-        for lab_path in (data_dir / 'gtFine' / subset).glob('*/*.png'):
+        #breakpoint()
+        for lab_path in (data_dir / 'gtFine' / subset).rglob(f'{name_qry}.png'):
             if str(lab_path).endswith('_labelIds.png'):
                 self.classes.append(lab_path)
             elif str(lab_path).endswith('_instanceIds.png'):

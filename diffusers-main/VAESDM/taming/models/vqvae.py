@@ -8,7 +8,6 @@ from typing import Tuple, Optional
 
 
 class VQSub(ModelMixin, ConfigMixin):
-
     @register_to_config
     def __init__(
             self,
@@ -61,6 +60,9 @@ class VQSub(ModelMixin, ConfigMixin):
             use_SPADE=use_SPADE
         )
 
+        # print(self.decoder)
+        self.use_SPADE = use_SPADE
+
     # ------------------------------------------------------------------------------
     ## Main part..
     def encode(self, x):
@@ -68,6 +70,14 @@ class VQSub(ModelMixin, ConfigMixin):
         h = self.quant_conv(h)
         quant, emb_loss, info = self.quantize(h)
         return quant, emb_loss, info
+
+    def decode(self, quant, segmap=None):
+        quant = self.post_quant_conv(quant)
+        if self.use_SPADE:
+            dec = self.decoder(quant, segmap)
+        else:
+            dec = self.decoder(quant)
+        return dec
 
     def encode_latent(self, x):
         h = self.encoder(x)
@@ -79,18 +89,15 @@ class VQSub(ModelMixin, ConfigMixin):
         dec = self.decode(quant, segmap)
         return dec
 
-    def decode(self, quant, segmap):
-        quant = self.post_quant_conv(quant)
-        dec = self.decoder(quant, segmap)
+    def decode_code(self, code_b, segmap=None):
+        quant_b, _, _ = self.quantize(code_b)
+        if self.use_SPADE:
+            dec = self.decoder(quant_b, segmap)
+        else:
+            dec = self.decoder(quant_b)
         return dec
 
-    def decode_code(self, code_b, segmap):
-        quant_b = self.quantize.get_codebook_entry(code_b, code_b.shape)
-        #quant_b, _, _ = self.quantize(code_b)
-        dec = self.decode(quant_b, segmap)
-        return dec
-
-    def forward(self, input, segmap):
+    def forward(self, input, segmap=None):
         quant, diff, _ = self.encode(input)
         dec = self.decode(quant, segmap)
         return dec, diff

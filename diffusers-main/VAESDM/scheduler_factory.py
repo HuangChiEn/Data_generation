@@ -128,8 +128,6 @@ scheduler_factory = {
 }
 
 
-
-
 def scheduler_setup(pipe : DiffusionPipeline = None, scheduler_type : str = 'UniPC', from_config=None, **kwargs):
     if not isinstance(pipe, DiffusionPipeline):
         raise TypeError(f'pipe should be DiffusionPipeline, but given {type(pipe)}\n')

@@ -57,7 +57,7 @@ def get_dataloader(data_dir, image_size, batch_size, num_workers, subset_type="t
         num_workers=num_workers,
     )
 
-def get_diffusion_modules(unet_path, numk_ckpt, vae_type=None):
+def get_diffusion_modules(unet_path, numk_ckpt=0, vae_type=None):
     # Load pretrained unet from local..
     if ".pt" in unet_path:
         unet = UNetModel(
@@ -80,6 +80,8 @@ def get_diffusion_modules(unet_path, numk_ckpt, vae_type=None):
         )
         unet.load_state_dict(torch.load(unet_path))
         unet = unet.to(torch.float16)
+    elif numk_ckpt == 0:
+        unet = UNetModel.from_pretrained(unet_path, subfolder='unet').to('cuda').to(torch.float16)
     else:
         unet_path = path.join(unet_path, f"checkpoint-{numk_ckpt*1000}")
         unet = UNetModel.from_pretrained(unet_path, subfolder='unet').to('cuda').to(torch.float16)
@@ -120,20 +122,20 @@ def get_cfg_str():
     num_inference_steps = 1000@int
     scheduler_type = DDPM@str
     save_dir = Gen_results@str
-    num_save_im = 1@int
-    s = 1.5@float 
+    num_save_im = 500@int
+    s = 1@float 
     
     [dataloader]
         data_dir = /data1/dataset/Cityscapes@str
         image_size = 540@int
-        batch_size = 1@int
-        num_workers = 1@int
-        subset_type = val@str
+        batch_size = 8@int
+        num_workers = 4@int
+        subset_type = train@str
 
     [diff_mod]
-        unet_path = /data/harry/Data_generation/diffusers-main/VAESDM/testourVQVAE-SDM-SPM-learnvar@str
+        unet_path = /data/harry/Data_generation/diffusers-main/VAESDM/ourVQVAE-SDM-learnvar@str
         #unet_path = /data/harry/Data_generation/OUTPUT/Cityscapes270-SDM-256CH-500epoch/model120000.pt@str
-        numk_ckpt = 31@int
+        numk_ckpt = 0@int
         vae_type = VQ@str
 
     [pipe]
@@ -142,12 +144,24 @@ def get_cfg_str():
     '''
 
 def test_car_image():
+    def get_edges(t):
+        # zero tensor, prepare to fill with edge (1) and bg (0)
+        edge = torch.ByteTensor(t.size()).zero_().to(t.device)
+        edge[:, :, :, 1:] = edge[:, :, :, 1:] | (t[:, :, :, 1:] != t[:, :, :, :-1])
+        edge[:, :, :, :-1] = edge[:, :, :, :-1] | (t[:, :, :, 1:] != t[:, :, :, :-1])
+        edge[:, :, 1:, :] = edge[:, :, 1:, :] | (t[:, :, 1:, :] != t[:, :, :-1, :])
+        edge[:, :, :-1, :] = edge[:, :, :-1, :] | (t[:, :, 1:, :] != t[:, :, :-1, :])
+        return edge.float()
+
     mask = cv2.imread(r"/data/harry/Data_generation/diffusers-main/car/preproc_car/mask/Fiat$$500$$2013$$White$$28_2$$1361$$image_4.png", 0)
     h, w = mask.shape
-    x = 10
-    y = 10
-    mask_ = torch.zeros(1, 35, 540, 720)
-    mask_[0][26][x:x+h, y:y+w] = torch.tensor(mask)
+    x = 50
+    y = 50
+    mask_ = torch.zeros(8, 35, 540, 720)
+    #mask_[0][26][x:x+h, y:y+w] = torch.tensor(mask)
+    #mask_[0][0] = 1-mask_[0][26]
+    mask_[:, 7, 270:, :] = 1.0
+    mask_[:, 23, :270, :] = 1.0
     return mask_
 
 if __name__ == "__main__":
@@ -159,11 +173,17 @@ if __name__ == "__main__":
     data_ld = get_dataloader(**cfger.dataloader)   
     unet, vae = get_diffusion_modules(**cfger.diff_mod)
 
+    del vae.quantize
+    del vae.encoder
+
     pipe = get_pipeline(**cfger.pipe, unet=unet, vae=vae)
     pipe = scheduler_setup(pipe, cfger.scheduler_type)#, from_config = "CompVis/stable-diffusion-v1-4")
     pipe = pipe.to("cuda")
 
     makedirs(cfger.save_dir, exist_ok=True)
+    makedirs(f"{cfger.save_dir}/mask", exist_ok=True)
+    makedirs(f"{cfger.save_dir}/image", exist_ok=True)
+
     num_itrs = (cfger.num_save_im // cfger.dataloader['batch_size'])
     
     # Generate the image : 
@@ -173,33 +193,20 @@ if __name__ == "__main__":
     generator = torch.manual_seed(cfger.seed)
 
 
-
     for idx, batch in enumerate(data_ld, 0):
         if idx >= num_itrs:
             break
-
-        fn_lst.extend(batch['filename'])
+        #fn_lst.extend(batch['filename'])
         clr_msks = [ clr_inst.permute(0, 3, 1, 2) / 255. for clr_inst in batch["segmap"]['clr_instance'] ]
-        clr_msk_lst.extend(clr_msks)
+        #clr_msk_lst.extend(clr_msks)
 
         segmap = preprocess_input(batch["segmap"], num_classes=34)
-        segmap = test_car_image()
         segmap = segmap.to("cuda").to(torch.float16)
         images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = cfger.s).images
-        #img_lst.extend(list(zip(*images)))
-        img_lst.extend(images)
+        #img_lst.extend(images)
 
+        for image, clr_msk, fn_w_ext in zip(images, clr_msks, batch['filename']):
+            image.save(f"{cfger.save_dir}/image/gen_{fn_w_ext}")
+            save_image(clr_msk, f"{cfger.save_dir}/mask/msk_{fn_w_ext}")
 
-
-    #img_lst = map(list, map(None, *img_lst))
-    #print(len(img_lst))
-    for idx, (image, clr_msk, fn_w_ext) in enumerate( zip(img_lst, clr_msk_lst, fn_lst) ):
-        if idx <= cfger.num_save_im:
-            if isinstance(image, tuple):
-                print(len(image))
-                for i, im in enumerate(image):
-                    im.save(f"{cfger.save_dir}/gen_{i}step_{fn_w_ext}")
-            else:
-                image.save(f"{cfger.save_dir}/gen_{fn_w_ext}")
-            save_image(clr_msk, f"{cfger.save_dir}/msk_{fn_w_ext}")
             

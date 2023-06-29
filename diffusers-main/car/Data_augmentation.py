@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 import random
 import os
-import pickle
 
 class Data_augmentation():
     def __init__(self, car_dir = None, inst_pkl_path = None):
@@ -111,7 +110,7 @@ class Data_augmentation():
             return r2 / r1
         return r1 / r2
 
-    def get_group(self, group_size=100):
+    def get_group(self, group_size=16):
         # get the subset from world
         if group_size > len(self.world):
             group = list(enumerate(self.world))
@@ -143,6 +142,68 @@ class Data_augmentation():
         else:
             return None, None
 
+    def get_test_mask(self):
+        label = np.zeros((1024,2048,1))
+        label[512:][:] = 7
+        label[:512][:] = 23
+        instance = np.zeros((540,720,1))
+        instance[512:][:] = 0
+        instance[:512][:] = 10
+        return label, instance
+
+    def get_car_image_label(self, image, mask, label, instance, scal_size=270, num_car=6, x=512):
+        Id, path = self.get_group(num_car+5)
+
+        space_size = int(image.shape[1] / num_car)
+        y = 0
+        for index, target_image_path in zip(Id, path):
+            if y + space_size >2048:
+                break
+            img = cv2.imread(self.car_dir + "/" + target_image_path)
+
+            p = self.car_dir[:-5] + "mask/" + target_image_path
+            msk = cv2.imread(os.path.join(p), 0)
+            img = cv2.resize(img, dsize = (scal_size,  int((scal_size /  img.shape[1]) * img.shape[0])))
+            msk = cv2.resize(msk, dsize = (scal_size,  int((scal_size /  msk.shape[1]) * msk.shape[0])), interpolation=cv2.INTER_NEAREST)
+            msk = np.expand_dims(msk, axis = -1)
+            if image[x:x+img.shape[0], y:y+img.shape[1]].shape[0] < img.shape[0]:
+                print(img.shape)
+                continue
+            image[x:x+img.shape[0], y:y+img.shape[1]] = img / 255
+
+            label[x:x+img.shape[0], y:y+img.shape[1]] = 26 * msk + (1-msk) * label[x:x+img.shape[0], y:y+img.shape[1]]
+
+            instance[x:x + img.shape[0], y:y + img.shape[1]] = 7 * msk + (1-msk) * instance[x:x + img.shape[0], y:y + img.shape[1]]
+
+            mask[x:x + img.shape[0], y:y + img.shape[1]] = msk
+
+            y += space_size
+
+        for index, target_image_path in zip(Id, path):
+            self.world.remove(target_image_path)
+        return image, mask, label, instance
+
+    def generate_data(self, background):
+        mask = np.zeros((1024,2048,1))
+        label = np.zeros((1024,2048,1))
+        instance = np.zeros((1024,2048,1))
+        image = np.zeros((1024,2048,3))
+        color_label = np.zeros((1024, 2048, 3))
+
+        instance [:540,:,:] = 5
+        label[:540, :, :] = 23
+        label[540:, :, :] = 7
+
+        image, mask, label, instance = self.get_car_image_label(image, mask, label, instance, 270, 6, 512)
+        image, mask, label, instance = self.get_car_image_label(image, mask, label, instance, 360, 4, 724)
+
+        background =  cv2.resize(background, (image.shape[1], image.shape[0]))
+        # mask = np.repeat(mask[:, :, np.newaxis], 3, axis=2)
+        image = background/255 * (1-mask) + image
+        color_label[:540, :] = (180, 130, 70)
+        color_label[540:, :] = (128, 64, 128)
+        color_label = color_label * (1-mask) + np.ones((1024, 2048, 3)) * (142, 0, 0)
+        return image, label, instance, color_label
     def filling_car(self, image1, image2, mask1, mask2):
         image1 = cv2.resize(image1, (image2.shape[1], image2.shape[0]))
         mask1 = cv2.resize(mask1, (image2.shape[1], image2.shape[0]))
@@ -158,25 +219,36 @@ class Data_augmentation():
         # cv2.imshow("mask2", mask2*255)
         return result_image
 
-def main():
-    #mask1 = cv2.imread(r"C:\Users\ASUS\Desktop\mask\Mitsubishi$$Shogun Sport$$2004$$Silver$$62_20$$18$$image_4.png", 0)
-    mask2 = cv2.imread(r"C:\Users\ASUS\Desktop\Renault$$Koleos$$2017$$Blue$$75_10$$44$$image_3mask.png", 0)
-    #image1 = cv2.imread(r"C:\Users\ASUS\Desktop\image\Mitsubishi$$Shogun Sport$$2004$$Silver$$62_20$$18$$image_4.png")
-    image2 = cv2.imread(r"C:\Users\ASUS\Desktop\Renault$$Koleos$$2017$$Blue$$75_10$$44$$image_3.png")
-    DA = Data_augmentation(car_dir = r"C:\Users\ASUS\Desktop\image")
-    print(len(DA.world))
-    max_image, max_mask = DA.find_best_object(mask2)
-    print(max_image.shape)
-    print(len(DA.world))
-    cv2.imshow("result_image",max_image)
-    # cv2.imshow("image1", image1)
-    # cv2.imshow("image2", image2)
-    #
-    # cv2.imshow("mask1", mask1*255)
-    # cv2.imshow("mask2", mask2*255)
+    def get_edges(self, t):
+        # zero tensor, prepare to fill with edge (1) and bg (0)
+        edge = np.zeros(t.shape)
+        edge = edge < 0
+        edge[ :, 1:, :] = edge[:, 1:, :] | (t[:, 1:, :] != t[ :, :-1, :])
+        edge[ :, :-1, :] = edge[:, :-1, :] | (t[:, 1:, :] != t[ :, :-1, :])
+        edge[ 1:, :, :] = edge[1:, :, :] | (t[1:, :, :] != t[:-1, :, :])
+        edge[ :-1, :, :] = edge[:-1, :, :] | (t[1:, :, :] != t[:-1, :, :])
+        return edge
 
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+def main():
+
+    DA = Data_augmentation(car_dir = r"/data/harry/Data_generation/diffusers-main/car/preproc_car/image")
+    for i in range(500):
+        print(i)
+        b = random.randint(1,8)
+        image, label, instance, color_label = DA.generate_data(cv2.imread(f"/data/harry/Data_generation/diffusers-main/car/preproc_car/background/{b}.png"))
+        edge = DA.get_edges(label) * 1.
+        # cv2.imshow("image", image)
+        # cv2.imshow("label", label/255)
+        # cv2.imshow("instance", instance/255)
+        # cv2.imshow("color_label", color_label / 255)
+        # cv2.imshow("edge", edge)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
+        cv2.imwrite(f"/data1/dataset/Cityscapes/leftImg8bit/train/DA_Data/{i}.png", image*255)
+        cv2.imwrite(f"/data1/dataset/Cityscapes/gtFine/train/DA_Data/{i}_labelIds.png", label)
+        cv2.imwrite(f"/data1/dataset/Cityscapes/gtFine/train/DA_Data/{i}_instanceIds.png", instance)
+        cv2.imwrite(f"/data1/dataset/Cityscapes/gtFine/train/DA_Data/{i}_color.png", color_label)
+        cv2.imwrite(f"/data1/dataset/Cityscapes/gtFine/train/DA_Data/{i}_edgeMaps.png", edge)
 
 if __name__ == "__main__":
     main()

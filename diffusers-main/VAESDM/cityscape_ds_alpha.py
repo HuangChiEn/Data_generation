@@ -60,10 +60,10 @@ class Cityscape_ds(Dataset):
         self.resize_size = resize_size
         self.random_flip = random_flip
         # Path object glob method return iterator, so we immediately turn it into list
-        self.imgs_path = list( (data_dir / 'leftImg8bit' / subset).glob('*/*.png') )
+        self.imgs_path = list( (data_dir / 'leftImg8bit' / subset).glob('DA_Data/*.png') )
         # get corresponding label(s)
         self.classes, self.instances, self.clr_instances = [], [], []
-        for lab_path in (data_dir / 'gtFine' / subset).glob('*/*.png'):
+        for lab_path in (data_dir / 'gtFine' / subset).glob('DA_Data/*.png'):
             if str(lab_path).endswith('_labelIds.png'):
                 self.classes.append(lab_path)
             elif str(lab_path).endswith('_instanceIds.png'):
@@ -140,7 +140,7 @@ class Cityscape_ds(Dataset):
             img = img[:, ::-1].copy()
             clr_msk_im = clr_msk_im[:, ::-1].copy()
             cls_im = cls_im[:, ::-1].copy() 
-            inst_im = inst_im[:, ::-1].copy() 
+            inst_im = inst_im[:, ::-1].copy()
 
         img = img.astype(np.float32) / 127.5 - 1
         out_dict = {'path':im_path, 'label_ori':cls_im, 'label':cls_im[None, ], 
@@ -194,14 +194,12 @@ def collate_fn(examples):
     for k in examples[0]["label"].keys():
         if k != 'path':
             if isinstance(examples[0]["label"][k], list):
-                print(ret)
                 segmap[k] = torch.stack([torch.from_numpy(example["label"][k][ret]) for example in examples])
             else:
                 segmap[k] = torch.stack([torch.from_numpy(example["label"][k]) for example in examples])
             segmap[k] = segmap[k].to(memory_format=torch.contiguous_format).float()
 
     if isinstance(examples[0]["pixel_values"], list):
-        print(ret)
         pixel_values = torch.stack([torch.from_numpy(example["pixel_values"][ret]) for example in examples])
     else:
         pixel_values = torch.stack([torch.from_numpy(example["pixel_values"]) for example in examples])

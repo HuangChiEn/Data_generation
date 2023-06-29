@@ -331,23 +331,24 @@ def main():
     
     from torch.utils.data import ConcatDataset
 
-    city_ds = vq_dataset.load_data(
+    train_dataset = vq_dataset.load_data(
         data_dir=config.ds_1.data_dir,
         resize_size=config.ds_1.image_size,
         subset_type='train',
         ret_dataset=True,
+        name_qry=r"[a-z]*/*"
     )
-    kitti_ds = vq_dataset.load_data(
-        data_dir=config.ds_2.data_dir,
-        resize_size=config.ds_2.image_size,
-        subset_type='train',
-        ret_dataset=True,
-    )
-    train_dataset = ConcatDataset([kitti_ds, city_ds])
+    # kitti_ds = vq_dataset.load_data(
+    #     data_dir=config.ds_2.data_dir,
+    #     resize_size=config.ds_2.image_size,
+    #     subset_type='train',
+    #     ret_dataset=True,
+    # )
+    # train_dataset = ConcatDataset([kitti_ds, city_ds])
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size = 6,
-        num_workers = 0,
+        num_workers = 8,
         collate_fn=custom_collate,
         shuffle=True
     )
@@ -363,7 +364,7 @@ def main():
 
     model = instantiate_from_config(config.model)
 
-    trainer = pl.Trainer(devices=1, precision=16, strategy="ddp_find_unused_parameters_true", logger=wandb_logger, max_epochs=100)#strategy=DDPStrategy(find_unused_parameters=True)
+    trainer = pl.Trainer(devices=1, precision=16, logger=wandb_logger, max_epochs=100)#strategy=DDPStrategy(find_unused_parameters=True)
     trainer.fit(model, train_loader, val_loader)#, ckpt_path="/data/harry/Data_generation/diffusers-main/VQVAE/lightning_logs/hm2zmxps/checkpoints/epoch=58-step=58528.ckpt")
 
 if __name__ == "__main__":

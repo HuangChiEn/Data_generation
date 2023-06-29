@@ -101,7 +101,6 @@ class Encoder(nn.Module):
             # down
             for down_block in self.down_blocks:
                 sample = down_block(sample)
-            
             # middle
             sample = self.mid_block(sample)
 
