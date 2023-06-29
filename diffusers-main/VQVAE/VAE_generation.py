@@ -1,5 +1,5 @@
 import torch
-from taming.data import vq_dataset
+from taming.data import vq_dataset, cityscape_ds_alpha
 from tqdm import tqdm, trange
 import torchvision as tv
 import os
@@ -28,8 +28,9 @@ def preprocess_input(data, drop_rate=0.0):
 
     # concatenate instance map if it exists
     if 'instance' in data:
-        inst_map = data['instance']
-        instance_edge_map = get_edges(inst_map)
+        b_msk = (data['instance']!=0)
+        # binary mask to gpu-device and turn type to float
+        instance_edge_map = b_msk.to(data['instance'].device).float()
         input_semantics = torch.cat((input_semantics, instance_edge_map), dim=1)
 
     if drop_rate > 0.0:
@@ -46,7 +47,7 @@ def main(use_fp16=True,data_dir='/data1/dataset/Cityscapes',batch_size=8,image_s
     #vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae")
     #vae_off = VQModel.from_pretrained("CompVis/ldm-super-resolution-4x-openimages", subfolder="vqvae")
     #vae = VQSub.from_pretrained("/data/harry/Data_generation/diffusers-main/VQVAE/VQ_model/70ep", subfolder="vqvae")
-    vae = VQSub.from_pretrained("/data/harry/Data_generation/diffusers-main/VQVAE/NOSPADE_VQ_model/70ep", subfolder="vqvae")
+    vae = VQSub.from_pretrained("/data/harry/Data_generation/diffusers-main/VQVAE/SPADE_VQ_model/70ep", subfolder="vqvae")
 
     if use_fp16:
         vae.to(dtype=torch.float16)
@@ -64,11 +65,10 @@ def main(use_fp16=True,data_dir='/data1/dataset/Cityscapes',batch_size=8,image_s
     #     cache_dir="/data/harry/Cityscape_catch/our_VQVAE_540_resize"
     # )
 
-    dataset = vq_dataset.load_data(
+    dataset = cityscape_ds_alpha.load_data(
         data_dir,
         resize_size=image_size,
         subset_type='train',
-        name_qry="DA_Data/*",
         #ret_dataset=False,
         #data_ld_kwargs={'batch_size':batch_size}
 
@@ -76,7 +76,7 @@ def main(use_fp16=True,data_dir='/data1/dataset/Cityscapes',batch_size=8,image_s
     data = torch.utils.data.DataLoader(
         dataset,
         shuffle=False,
-        collate_fn=vq_dataset.collate_fn,
+        collate_fn=cityscape_ds_alpha.collate_fn,
         batch_size=batch_size,
         num_workers=8,
     )
@@ -84,7 +84,7 @@ def main(use_fp16=True,data_dir='/data1/dataset/Cityscapes',batch_size=8,image_s
 
     cnt = 0
     #sav_fd = 'vqvae_ress'
-    sav_fd = "/data/harry/Cityscape_catch/our_NOSPADEVQVAE_540_resize/train/"
+    sav_fd = "/data/harry/Cityscape_catch/our_VQVAE_540_resize/train/"
     if not os.path.isdir(sav_fd):
         os.makedirs(sav_fd)
     import copy
@@ -132,6 +132,7 @@ def main(use_fp16=True,data_dir='/data1/dataset/Cityscapes',batch_size=8,image_s
             q = q.cpu()
             q_f = q_f.cpu()
             data_dic = {"x": [q, q_f], "label": {"segmap": [seg.cpu(), seg_f.cpu()] , "path": name}}
+            #print(name)
             path = sav_fd + name.split('/')[-2] + "/" + name.split('/')[-1].replace(".png", ".pt")
             if not os.path.isdir(sav_fd + name.split('/')[-2]):
                 os.makedirs(sav_fd + name.split('/')[-2])

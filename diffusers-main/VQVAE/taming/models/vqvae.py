@@ -60,7 +60,6 @@ class VQSub(ModelMixin, ConfigMixin):
             use_SPADE=use_SPADE
         )
 
-        print(self.decoder)
         self.use_SPADE = use_SPADE
 #------------------------------------------------------------------------------
 ## Main part..
