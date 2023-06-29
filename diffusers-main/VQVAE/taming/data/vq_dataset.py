@@ -202,7 +202,7 @@ class Cityscape_cache(Dataset):
             x = x * Cityscape_cache.VAE_SCALE
         elif isinstance(vae_cache['x'], list):
             ret = random.randint(0, len(vae_cache['x'])-1)
-            x = vae_cache['x'][ret] # * Cityscape_cache.VAE_SCALE
+            x = vae_cache['x'][ret] * Cityscape_cache.VAE_SCALE
             vae_cache['label']["segmap"] = vae_cache['label']["segmap"][ret]
         else:
             x = vae_cache['x']
@@ -380,19 +380,6 @@ def collate_fn(examples):
     
     return {"pixel_values": pixel_values, "segmap": segmap, 'filename': filename_lst}
 
-def measure_latent_scale(vae_cache_ld):
-    all_latents = []
-    for cache_cnt in vae_cache_ld:
-        breakpoint()
-        all_latents.append(cache_cnt["pixel_values"].cpu())
-
-    all_latents_tensor = torch.cat(all_latents)
-    std = all_latents_tensor.std().item()
-    normalizer = 1 / std
-    print(f'{normalizer = }')
-    breakpoint()
-    # 7.706491063029163
-
 # unittest..
 if __name__ == "__main__":
     from easy_configer.Configer import Configer
@@ -400,7 +387,6 @@ if __name__ == "__main__":
     cfger.cfg_from_str('''
     [ds1]
         data_dir = '/data/joseph/kitti_ds'
-        cache_dir = '/data/harry/Cityscape_catch/our_VQVAE_540_resize'
         resize_size = 540
         subset_type = 'train'
 
@@ -419,19 +405,16 @@ if __name__ == "__main__":
     from torch.utils.data import ConcatDataset
     import torchvision.transforms as T
 
-    train_dataset = load_data(**cfger.ds1)
-    #city_ds = load_data(**cfger.ds2)
-    #train_dataset = ConcatDataset([kitti_ds, city_ds])
+    kitti_ds = load_data(**cfger.ds1)
+    city_ds = load_data(**cfger.ds2)
+    train_dataset = ConcatDataset([kitti_ds, city_ds])
     
     data_ld = torch.utils.data.DataLoader(
         train_dataset,
-        #collate_fn=collate_fn,
+        collate_fn=collate_fn,
         **cfger.ld
     )
 
-    measure_latent_scale(data_ld)
-
-    breakpoint()
     fn_lst = []
     tnsr2pil = T.ToPILImage()
     for idx, batch in enumerate(data_ld, 0):

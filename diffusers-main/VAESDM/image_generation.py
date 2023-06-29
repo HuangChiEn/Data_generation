@@ -16,7 +16,7 @@ Pipe_dispatcher = {
 
 # TODO : this should be placed in cityscape dataset py file
 def preprocess_input(data, num_classes):
-    # get_edge map is deprecated !!
+    # utils to get the edge of image
     def get_edges(t):
         # zero tensor, prepare to fill with edge (1) and bg (0)
         edge = torch.ByteTensor(t.size()).zero_().to(t.device)
@@ -167,21 +167,13 @@ def test_car_image():
     mask_[:, 23, :270, :] = 1.0
     return mask_
 
-async def async_save_imgs(images, clr_msks, fn_lst):
-    for image, clr_msk, fn_w_ext in zip(images, clr_msks, batch['filename']):
-        image.save(f"{cfger.save_dir}/image/gen_{fn_w_ext}")
-        await save_image(clr_msk, f"{cfger.save_dir}/mask/msk_{fn_w_ext}")
-    
-
-
-
 if __name__ == "__main__":
     from torchvision.utils import save_image
     from easy_configer.Configer import Configer
     cfger = Configer()
     cfger.cfg_from_str( get_cfg_str() )
 
-    data_ld = get_dataloader(**cfger.dataloader)  
+    data_ld = get_dataloader(**cfger.dataloader)   
     unet, vae = get_diffusion_modules(**cfger.diff_mod)
 
     del vae.quantize
@@ -203,17 +195,16 @@ if __name__ == "__main__":
     img_lst, fn_lst, clr_msk_lst = [], [], []
     generator = torch.manual_seed(cfger.seed)
 
+
     for idx, batch in enumerate(data_ld, 0):
         if idx >= num_itrs:
             break
-
         #fn_lst.extend(batch['filename'])
         clr_msks = [ clr_inst.permute(0, 3, 1, 2) / 255. for clr_inst in batch["segmap"]['clr_instance'] ]
         #clr_msk_lst.extend(clr_msks)
 
         segmap = preprocess_input(batch["segmap"], num_classes=34)
         segmap = segmap.to("cuda").to(torch.float16)
-
         images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = cfger.s).images
         #img_lst.extend(images)
 
@@ -221,4 +212,4 @@ if __name__ == "__main__":
             image.save(f"{cfger.save_dir}/image/gen_{fn_w_ext}")
             save_image(clr_msk, f"{cfger.save_dir}/mask/msk_{fn_w_ext}")
 
-        #async_save_imgs(images, clr_msks, batch['filename'])
+            

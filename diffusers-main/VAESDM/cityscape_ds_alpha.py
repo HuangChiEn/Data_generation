@@ -23,9 +23,14 @@ def load_data(
     cache_file_callbk:Callable = None, 
     resize_size:tuple = None, 
     subset_type:str = 'train', 
+<<<<<<< HEAD
     fn_qry:str = '*/*.png',
     random_flip:bool = True, 
     ret_dataset:bool = True, 
+=======
+    ret_dataset:bool = True, 
+    random_flip:bool = True, 
+>>>>>>> 25bbe98d5fbf273705f2b11005ab04a0cca5c764
     data_ld_kwargs:dict = None
 ):
     # given dir chking..
@@ -44,7 +49,11 @@ def load_data(
     subset_type = ['train', 'val'] if subset_type == 'all' else [subset_type]
     all_ds = {}.fromkeys(subset_type)
     for subset in subset_type:
+<<<<<<< HEAD
         all_ds[subset] = Cityscape_ds(data_dir, subset, resize_size, random_flip, fn_qry)
+=======
+        all_ds[subset] = Cityscape_ds(data_dir, subset, resize_size, random_flip)
+>>>>>>> 25bbe98d5fbf273705f2b11005ab04a0cca5c764
 
     if ret_dataset:
         # integrate with previous version, ret dict while enable 'all' subset_type
@@ -55,6 +64,7 @@ def load_data(
         all_ds[subset] = DataLoader(all_ds[subset], collate_fn=collate_fn, **data_ld_kwargs)
     return all_ds
 
+<<<<<<< HEAD
 class Cityscape_ds(Dataset):   
     def __init__(self, data_dir, subset, resize_size, random_flip, fn_qry):
         def get_tag(path):
@@ -62,10 +72,15 @@ class Cityscape_ds(Dataset):
             city, fid, bid, _ = tmp[0], tmp[1], tmp[2], tmp[3]
             return city, fid, bid
 
+=======
+class Cityscape_ds(Dataset):
+    def __init__(self, data_dir, subset, resize_size, random_flip):
+>>>>>>> 25bbe98d5fbf273705f2b11005ab04a0cca5c764
         super().__init__()
         self.resize_size = resize_size
         self.random_flip = random_flip
         # Path object glob method return iterator, so we immediately turn it into list
+<<<<<<< HEAD
         self.imgs_path = list( (data_dir / 'leftImg8bit' / subset).glob(fn_qry) )
         # get corresponding label(s)
         self.classes, self.instances, self.clr_instances = [], [], []
@@ -94,6 +109,23 @@ class Cityscape_ds(Dataset):
             assert im_fid == cs_fid == ins_fid
             assert im_bid == cs_bid == ins_bid
         '''
+=======
+        self.imgs_path = list( (data_dir / 'leftImg8bit' / subset).glob('DA_Data/*.png') )
+        # get corresponding label(s)
+        self.classes, self.instances, self.clr_instances = [], [], []
+        for lab_path in (data_dir / 'gtFine' / subset).glob('DA_Data/*.png'):
+            if str(lab_path).endswith('_labelIds.png'):
+                self.classes.append(lab_path)
+            elif str(lab_path).endswith('_instanceIds.png'):
+                self.instances.append(lab_path)
+            elif str(lab_path).endswith('_color.png'):
+                self.clr_instances.append(lab_path)
+            else:
+                warnings.warn(f"Unidentified file : {lab_path}")
+        # sort lst to confirm the order
+        self.imgs_path.sort() ; self.classes.sort() ; self.instances.sort() ; self.clr_instances.sort()
+
+>>>>>>> 25bbe98d5fbf273705f2b11005ab04a0cca5c764
 
     def __pil_read(self, path, read_mode='RGB'): 
         with Image.open(path) as meta_im:
@@ -146,10 +178,14 @@ class Cityscape_ds(Dataset):
         # labels resize with lower quality but better performance!
         clr_msk_im, cls_im, inst_im = \
             self.__ratio_resize(clr_msk_im, Image.NEAREST), self.__ratio_resize(cls_im, Image.NEAREST), self.__ratio_resize(inst_im, Image.NEAREST)
+<<<<<<< HEAD
 
         # assert img shape consistent
         assert img.size == clr_msk_im.size == cls_im.size == inst_im.size
 
+=======
+        
+>>>>>>> 25bbe98d5fbf273705f2b11005ab04a0cca5c764
         # center-crop (hard-code 1080, 1440 currently..)
         sc = 1080 // self.resize_size  
         crop_size = ( self.resize_size, 1440//sc )
@@ -162,16 +198,23 @@ class Cityscape_ds(Dataset):
             img = img[:, ::-1].copy()
             clr_msk_im = clr_msk_im[:, ::-1].copy()
             cls_im = cls_im[:, ::-1].copy() 
+<<<<<<< HEAD
             inst_im = inst_im[:, ::-1].copy() 
 
         # assert img shape consistent
         assert img.size == clr_msk_im.size 
         assert cls_im.size == inst_im.size
+=======
+            inst_im = inst_im[:, ::-1].copy()
+>>>>>>> 25bbe98d5fbf273705f2b11005ab04a0cca5c764
 
         img = img.astype(np.float32) / 127.5 - 1
         out_dict = {'path':im_path, 'label_ori':cls_im, 'label':cls_im[None, ], 
                     'instance':inst_im[None, ], 'clr_instance':clr_msk_im[None, ]}
+<<<<<<< HEAD
         
+=======
+>>>>>>> 25bbe98d5fbf273705f2b11005ab04a0cca5c764
                     
         # switch to channel first format due to torch tensor..
         return {"pixel_values":np.transpose(img, [2, 0, 1]), "label":out_dict}
@@ -224,9 +267,14 @@ def collate_fn(examples):
                 segmap[k] = torch.stack([torch.from_numpy(example["label"][k][ret]) for example in examples])
             else:
                 segmap[k] = torch.stack([torch.from_numpy(example["label"][k]) for example in examples])
+<<<<<<< HEAD
 
             segmap[k] = segmap[k].to(memory_format=torch.contiguous_format).float()
     
+=======
+            segmap[k] = segmap[k].to(memory_format=torch.contiguous_format).float()
+
+>>>>>>> 25bbe98d5fbf273705f2b11005ab04a0cca5c764
     if isinstance(examples[0]["pixel_values"], list):
         pixel_values = torch.stack([torch.from_numpy(example["pixel_values"][ret]) for example in examples])
     else:
@@ -239,6 +287,7 @@ def collate_fn(examples):
 
 # unittest..
 if __name__ == "__main__":
+<<<<<<< HEAD
     from pathlib import Path
 
     ds = Cityscape_ds(Path('/data1/dataset/Cityscapes'), 'val', 540, True, '[a-z]*/*.png')  
@@ -250,3 +299,6 @@ if __name__ == "__main__":
         breakpoint()
 
     
+=======
+    ...
+>>>>>>> 25bbe98d5fbf273705f2b11005ab04a0cca5c764
