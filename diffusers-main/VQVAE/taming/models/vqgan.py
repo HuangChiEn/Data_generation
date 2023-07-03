@@ -26,7 +26,7 @@ class VQModel(pl.LightningModule):
         self.loss = instantiate_from_config(lossconfig)
         # convert omegaconf to python serilizeable obj
         ddconfig = OmegaConf.to_object(ddconfig)
-        self.disc_conditional = OmegaConf.to_object(ddconfig)["params"]["disc_conditional"]
+        self.disc_conditional = OmegaConf.to_object(lossconfig)["params"]["disc_conditional"]
         
         self.vqvae = VQSub(**ddconfig)
         self.automatic_optimization = False
@@ -102,10 +102,10 @@ class VQModel(pl.LightningModule):
         x, y = self.get_input(batch, self.image_key)
         xrec, qloss = self(x, y)
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
-                                            last_layer=self.get_last_layer(),cond=y if self.use_SPADE else None, split="val")
+                                            last_layer=self.get_last_layer(),cond=y if self.disc_conditional else None, split="val")
 
         discloss, log_dict_disc = self.loss(qloss, x, xrec, 1, self.global_step,
-                                            last_layer=self.get_last_layer(),cond=y if self.use_SPADE else None, split="val")
+                                            last_layer=self.get_last_layer(),cond=y if self.disc_conditional else None, split="val")
         rec_loss = log_dict_ae["val/rec_loss"]
         # self.log("val/rec_loss", rec_loss,
         #            prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
@@ -189,4 +189,4 @@ class VQModel(pl.LightningModule):
         epoch = self.current_epoch # type: ignore
         if epoch % self.frequency == 0:
             #self.log_images()
-            self.vqvae.save_pretrained(os.path.join(f"./Catmap_VQ/{epoch}ep", "vqvae"))
+            self.vqvae.save_pretrained(os.path.join(f"./SPADE_VQ_model_V2/{epoch}ep", "vqvae"))
