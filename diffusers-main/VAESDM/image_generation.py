@@ -123,16 +123,16 @@ def get_cfg_str():
     seed = 42
     num_inference_steps = 1000
     scheduler_type = 'DDPM'
-    save_dir = 'Gen_results'
-    num_save_im = 500
-    s = 1@float    # 1. equal @float
+    save_dir = 'Gen_results1'
+    num_save_im = 8
+    s = 1.2@float    # 1. equal @float
     
     [dataloader]
         data_dir = '/data1/dataset/Cityscapes'
         image_size = 540
         batch_size = 8
         num_workers = 4
-        subset_type = 'train'
+        subset_type = 'val'
         fn_qry = '*/*.png'   # qry-syntax to skip DA_Data [a-z]*/*.png
 
     [diff_mod]
@@ -199,14 +199,11 @@ if __name__ == "__main__":
     for idx, batch in enumerate(data_ld, 0):
         if idx >= num_itrs:
             break
-        #fn_lst.extend(batch['filename'])
         clr_msks = [ clr_inst.permute(0, 3, 1, 2) / 255. for clr_inst in batch["segmap"]['clr_instance'] ]
-        #clr_msk_lst.extend(clr_msks)
 
         segmap = preprocess_input(batch["segmap"], num_classes=34)
         segmap = segmap.to("cuda").to(torch.float16)
         images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = cfger.s).images
-        #img_lst.extend(images)
 
         for image, clr_msk, fn_w_ext in zip(images, clr_msks, batch['filename']):
             image.save(f"{cfger.save_dir}/image/gen_{fn_w_ext}")

@@ -1,6 +1,6 @@
 import functools
 import torch.nn as nn
-
+import torch
 
 from taming.modules.util import ActNorm
 
@@ -61,6 +61,9 @@ class NLayerDiscriminator(nn.Module):
         sequence += [
             nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]  # output 1 channel prediction map
         self.main = nn.Sequential(*sequence)
+
+    # def forward(self, input):
+    #     return torch.utils.checkpoint.checkpoint(self._forward, input)
 
     def forward(self, input):
         """Standard forward."""

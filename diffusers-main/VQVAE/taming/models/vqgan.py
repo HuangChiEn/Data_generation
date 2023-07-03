@@ -26,6 +26,7 @@ class VQModel(pl.LightningModule):
         self.loss = instantiate_from_config(lossconfig)
         # convert omegaconf to python serilizeable obj
         ddconfig = OmegaConf.to_object(ddconfig)
+        self.disc_conditional = OmegaConf.to_object(ddconfig)["params"]["disc_conditional"]
         
         self.vqvae = VQSub(**ddconfig)
         self.automatic_optimization = False
@@ -79,7 +80,7 @@ class VQModel(pl.LightningModule):
 
         # autoencode
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
-                                        last_layer=self.get_last_layer(), split="train")
+                                        last_layer=self.get_last_layer(), cond=y if self.disc_conditional else None, split="train")
 
         #self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
         self.log_dict(log_dict_ae, prog_bar=False, logger=True, on_step=True, on_epoch=True)
@@ -89,7 +90,7 @@ class VQModel(pl.LightningModule):
         
         # discriminator
         discloss, log_dict_disc = self.loss(qloss, x.detach(), xrec, 1, self.global_step,
-                                        last_layer=self.get_last_layer(), split="train")
+                                        last_layer=self.get_last_layer(), cond=y if self.disc_conditional else None, split="train")
         #self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
         self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
 
@@ -101,10 +102,10 @@ class VQModel(pl.LightningModule):
         x, y = self.get_input(batch, self.image_key)
         xrec, qloss = self(x, y)
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
-                                            last_layer=self.get_last_layer(), split="val")
+                                            last_layer=self.get_last_layer(),cond=y if self.use_SPADE else None, split="val")
 
         discloss, log_dict_disc = self.loss(qloss, x, xrec, 1, self.global_step,
-                                            last_layer=self.get_last_layer(), split="val")
+                                            last_layer=self.get_last_layer(),cond=y if self.use_SPADE else None, split="val")
         rec_loss = log_dict_ae["val/rec_loss"]
         # self.log("val/rec_loss", rec_loss,
         #            prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
@@ -150,7 +151,6 @@ class VQModel(pl.LightningModule):
 
     def preprocess_input(self, data, num_classes):
         # move to GPU and change data types
-        print(data)
         data['label'] = data['label'].long()
 
         # create one-hot label map
@@ -161,8 +161,12 @@ class VQModel(pl.LightningModule):
 
         # concatenate instance map if it exists
         if 'instance' in data:
-            inst_map = data['instance']
-            instance_edge_map = self.get_edges(inst_map)
+            # inst_map = data['instance']
+            # instance_edge_map = self.get_edges(inst_map)
+            # input_semantics = torch.cat((input_semantics, instance_edge_map), dim=1)
+            b_msk = (data['instance'] != 0)
+            # binary mask to gpu-device and turn type to float
+            instance_edge_map = b_msk.to(data['instance'].device).float()
             input_semantics = torch.cat((input_semantics, instance_edge_map), dim=1)
 
         return input_semantics
@@ -185,4 +189,4 @@ class VQModel(pl.LightningModule):
         epoch = self.current_epoch # type: ignore
         if epoch % self.frequency == 0:
             #self.log_images()
-            self.vqvae.save_pretrained(os.path.join(f"./test_VQ_model_GPU/{epoch}ep", "vqvae"))
+            self.vqvae.save_pretrained(os.path.join(f"./Catmap_VQ/{epoch}ep", "vqvae"))

@@ -11,7 +11,7 @@ from pytorch_lightning.trainer import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, Callback, LearningRateMonitor
 from pytorch_lightning.utilities import rank_zero_only
 
-from taming.data import vq_dataset
+from taming.data import vq_dataset, cityscape_ds_alpha
 #from taming.data.utils import custom_collate
 from taming.data.vq_dataset import collate_fn as custom_collate
 from pytorch_lightning.strategies.ddp import DDPStrategy
@@ -331,12 +331,12 @@ def main():
     
     from torch.utils.data import ConcatDataset
 
-    train_dataset = vq_dataset.load_data(
+    train_dataset = cityscape_ds_alpha.load_data(
         data_dir=config.ds_1.data_dir,
         resize_size=config.ds_1.image_size,
         subset_type='train',
         ret_dataset=True,
-        name_qry=r"[a-z]*/*"
+        fn_qry=r"[a-z]*/*.png"
     )
     # kitti_ds = vq_dataset.load_data(
     #     data_dir=config.ds_2.data_dir,
@@ -347,7 +347,7 @@ def main():
     # train_dataset = ConcatDataset([kitti_ds, city_ds])
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
-        batch_size = 6,
+        batch_size = config.ds_1.batch_size,
         num_workers = 8,
         collate_fn=custom_collate,
         shuffle=True
