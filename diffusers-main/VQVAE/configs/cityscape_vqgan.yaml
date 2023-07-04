@@ -21,8 +21,8 @@ model:
     lossconfig:
       target: taming.modules.losses.vqperceptual.VQLPIPSWithDiscriminator
       params:
-        disc_conditional: True
-        disc_in_channels: 38     # because we add 34 + 1 (edge info)
+        disc_conditional: False
+        disc_in_channels: 3     # because we add 34 + 1 (edge info)
         disc_start: 6251
         disc_weight: 0.6
         codebook_weight: 1.0
@@ -31,19 +31,19 @@ data:
   params:
     data_dir: /data1/dataset/Cityscapes
     image_size: 540
-    batch_size: 2
+    batch_size: 6
     num_workers: 8
 
 ds_1:
   data_dir: /data1/dataset/Cityscapes
   image_size: 540
-  batch_size: 4
+  batch_size: 6
   num_workers: 8
 
 ds_2:
   data_dir: /data/joseph/kitti_ds
   image_size: 540
-  batch_size: 4
+  batch_size: 6
   num_workers: 8
 
     

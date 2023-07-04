@@ -327,7 +327,7 @@ def main():
     config = OmegaConf.merge(*configs, cli)
 
     from pytorch_lightning.loggers import WandbLogger
-    wandb_logger = WandbLogger(name="CatSegmap VQModel")
+    wandb_logger = WandbLogger(name="SPADE VQModel V2")
     
     from torch.utils.data import ConcatDataset
 
