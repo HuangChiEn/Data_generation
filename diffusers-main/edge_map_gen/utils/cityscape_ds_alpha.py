@@ -5,7 +5,6 @@ import random
 import warnings
 from pathlib import Path
 from typing import Callable
-from dataclasses import dataclass
 
 # 3rd pkgs
 import numpy as np
@@ -56,15 +55,6 @@ def load_data(
         all_ds[subset] = DataLoader(all_ds[subset], collate_fn=collate_fn, **data_ld_kwargs)
     return all_ds
 
-# helper function to show the warning message only once without def extra-variable.
-@dataclass
-class Whistler:
-    warn_msg : str 
-    said_once : bool = True 
-    def whistle():
-        if self.said_once: 
-            print(self.warn_msg) ; self.said_once = False
-
 class Cityscape_ds(Dataset):   
     def __init__(self, data_dir, subset, resize_size, random_flip, fn_qry):
         def get_tag(path):
@@ -80,27 +70,15 @@ class Cityscape_ds(Dataset):
         # get corresponding label(s)
         self.classes, self.instances, self.clr_instances = [], [], []
         
-        crs_edg = Whistler("Loading coarse edge ~\n")
-        fin_edg = Whistler("Loading finer edge ~\n")
-        deprecate = Whistler("instanceIds img is deprecated ~\n")
-
         for lab_path in (data_dir / 'gtFine' / subset).glob(fn_qry):
-            # Loading path for classes
             if str(lab_path).endswith('_labelIds.png'):
                 self.classes.append(lab_path)
-            # Loading path for instance
             elif str(lab_path).endswith('_edgeMaps.png'):
-                crs_edg.whistle()
                 self.instances.append(lab_path)
-            elif str(lab_path).endswith('_crEdgeMaps.png'):
-                fin_edg.whistle()
-                self.instances.append(lab_path)
-            elif str(lab_path).endswith('_instanceIds.png'):
-                deprecate.whistle()
-                continue   
-            # Loading path for color instance
             elif str(lab_path).endswith('_color.png'):
                 self.clr_instances.append(lab_path)
+            elif str(lab_path).endswith('_instanceIds.png'):
+                continue   # instanceIds img is deprecated !!
             else:
                 warnings.warn(f"Unidentified file : {lab_path}")
         # sort lst to confirm the order

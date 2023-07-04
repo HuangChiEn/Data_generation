@@ -5,7 +5,7 @@ import gzip
 import time
 from remote_plot import plt
 
-with open('./cityscapes-to-coco-conversion/un_gtFine_train_bbox.pkl', 'rb') as f_ptr:
+with open('./cityscapes_proc_script/un_gtFine_train_bbox.pkl', 'rb') as f_ptr:
     tra_dict = pickle.load(f_ptr)
 
 for idx, im_inst in enumerate(tra_dict.values()):
