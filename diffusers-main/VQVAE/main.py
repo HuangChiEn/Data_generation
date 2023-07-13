@@ -353,7 +353,7 @@ def main():
         shuffle=True
     )
 
-    val_loader = vq_dataset.load_data(
+    val_loader = cityscape_ds_alpha.load_data(
         data_dir=config.data.params.data_dir,
         resize_size=config.data.params.image_size,
         subset_type='val',

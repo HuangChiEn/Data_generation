@@ -8,11 +8,24 @@ from cityscape_ds_alpha import load_data, collate_fn
 from scheduler_factory import scheduler_setup
 from taming.models.vqvae import VQSub
 import cv2
+from PIL import Image
 Pipe_dispatcher = {
     'LDMPipeline' : LDMPipeline, 
     'SDMPipeline' : SDMPipeline,
     'SDMLDMPipeline' : SDMLDMPipeline
 }
+
+
+def numpy_to_pil(images):
+    """
+    Convert a numpy image or a batch of images to a PIL image.
+    """
+    if images.ndim == 3:
+        images = images[None, ...]
+    images = (images * 255).round().astype("uint8")
+    pil_images = [Image.fromarray(image) for image in images]
+
+    return pil_images
 
 # TODO : this should be placed in cityscape dataset py file
 def preprocess_input(data, num_classes):
@@ -44,20 +57,23 @@ def preprocess_input(data, num_classes):
 
     return input_semantics
 
-def get_dataloader(data_dir, image_size, batch_size, num_workers, fn_qry, subset_type="train"):
+def get_dataloader(data_dir, image_size, batch_size, num_workers, fn_qry, subset_type="train", num_processes=1):
     train_dataset = load_data(
         data_dir,
         resize_size=image_size,
         subset_type=subset_type,
         fn_qry=fn_qry
     )
-    return torch.utils.data.DataLoader(
-        train_dataset,
-        shuffle=False,
+    num_data_pre = int(len(train_dataset) / num_processes)
+    dataset = torch.utils.data.random_split(train_dataset, [num_data_pre for _ in range(num_processes-1)] + [len(train_dataset) - num_data_pre*(num_processes-1)])
+    print("split dataset size", [len(d) for d in dataset])
+    #train_dataset1,  train_dataset2= torch.utils.data.random_split(train_dataset, [250, 250])
+    return [ torch.utils.data.DataLoader(
+        d, shuffle=False,
         collate_fn=collate_fn,
         batch_size=batch_size,
         num_workers=num_workers,
-    )
+        ) for d in dataset]
 
 def get_diffusion_modules(unet_path, numk_ckpt=0, vae_type=None):
     # Load pretrained unet from local..
@@ -96,7 +112,7 @@ def get_diffusion_modules(unet_path, numk_ckpt=0, vae_type=None):
         vae = AutoencoderKL.from_pretrained('CompVis/stable-diffusion-v1-4', subfolder='vae').to('cuda').to(torch.float16)
     elif vae_type == 'VQ':
         #vae = VQModel.from_pretrained('CompVis/ldm-super-resolution-4x-openimages', subfolder='vqvae').to('cuda').to(torch.float16)
-        vae = VQSub.from_pretrained('/data/harry/Data_generation/diffusers-main/VQVAE/SPADE_VQ_model/70ep', subfolder='vqvae').to('cuda').to(torch.float16)
+        vae = VQSub.from_pretrained('/data/harry/Data_generation/diffusers-main/VQVAE/SPADE_VQ_model_V2/70ep', subfolder='vqvae').to('cuda').to(torch.float16)
     else:
         raise ValueError(f"Unsupport VAE type {vae_type}")
     
@@ -123,15 +139,15 @@ def get_cfg_str():
     seed = 42
     num_inference_steps = 1000
     scheduler_type = 'DDPM'
-    save_dir = 'Gen_results1'
-    num_save_im = 8
+    save_dir = 'Gen_results3'
+    num_save_im = 500
     s = 1.2@float    # 1. equal @float
     
     [dataloader]
         data_dir = '/data1/dataset/Cityscapes'
         image_size = 540
         batch_size = 8
-        num_workers = 4
+        num_workers = 8
         subset_type = 'val'
         fn_qry = '*/*.png'   # qry-syntax to skip DA_Data [a-z]*/*.png
 
@@ -170,22 +186,31 @@ def test_car_image():
 if __name__ == "__main__":
     from torchvision.utils import save_image
     from easy_configer.Configer import Configer
+    from accelerate import PartialState  # Can also be Accelerator or AcceleratorStaet
+    distributed_state = PartialState()
     cfger = Configer()
     cfger.cfg_from_str( get_cfg_str() )
 
-    data_ld = get_dataloader(**cfger.dataloader)   
+    data_lds = get_dataloader(**cfger.dataloader)
     unet, vae = get_diffusion_modules(**cfger.diff_mod)
 
-    del vae.quantize
+    #del vae.quantize
     del vae.encoder
 
     pipe = get_pipeline(**cfger.pipe, unet=unet, vae=vae)
     pipe = scheduler_setup(pipe, cfger.scheduler_type)#, from_config = "CompVis/stable-diffusion-v1-4")
-    pipe = pipe.to("cuda")
+    pipe.to(distributed_state.device)
+
+    # Assume two processes
+    data_ld = data_lds[distributed_state.process_index]
+
+
+    pipe = pipe.to(distributed_state.device)
 
     makedirs(cfger.save_dir, exist_ok=True)
     makedirs(f"{cfger.save_dir}/mask", exist_ok=True)
     makedirs(f"{cfger.save_dir}/image", exist_ok=True)
+    makedirs(f"{cfger.save_dir}/real", exist_ok=True)
 
     num_itrs = (cfger.num_save_im // cfger.dataloader['batch_size'])
     
@@ -195,18 +220,24 @@ if __name__ == "__main__":
     img_lst, fn_lst, clr_msk_lst = [], [], []
     generator = torch.manual_seed(cfger.seed)
 
-
     for idx, batch in enumerate(data_ld, 0):
-        if idx >= num_itrs:
-            break
+        # if idx >= num_itrs:
+        #     break
         clr_msks = [ clr_inst.permute(0, 3, 1, 2) / 255. for clr_inst in batch["segmap"]['clr_instance'] ]
-
+        real = batch['pixel_values']
+        #real = [ clr_inst.permute(0, 3, 1, 2) / 255. for clr_inst in batch['pixel_values'] ]
         segmap = preprocess_input(batch["segmap"], num_classes=34)
-        segmap = segmap.to("cuda").to(torch.float16)
-        images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = cfger.s).images
+        segmap = segmap.to(distributed_state.device).to(torch.float16)
+        images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = cfger.s, batch_size=segmap.shape[0]).images
 
-        for image, clr_msk, fn_w_ext in zip(images, clr_msks, batch['filename']):
-            image.save(f"{cfger.save_dir}/image/gen_{fn_w_ext}")
-            save_image(clr_msk, f"{cfger.save_dir}/mask/msk_{fn_w_ext}")
+        for x, image, clr_msk, fn_w_ext in zip(real, images, clr_msks, batch['filename']):
+
+            #torchvision.utils.save_image(x,f"{cfger.save_dir}/real/{fn_w_ext}")
+            # numpy_to_pil(x).save(f"{cfger.save_dir}/real/{fn_w_ext}")
+            # print(x.shape)
+            # [2, 0, 1]
+            save_image((x+1.)/2., f"{cfger.save_dir}/real/{fn_w_ext}")
+            image.save(f"{cfger.save_dir}/image/{fn_w_ext}")
+            save_image(clr_msk, f"{cfger.save_dir}/mask/{fn_w_ext}")
 
             

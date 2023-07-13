@@ -97,6 +97,7 @@ def get_activations(files, model, batch_size=50, dims=2048,
         print(('Warning: batch size is bigger than the data size. '
                'Setting batch size to data size'))
         batch_size = len(files)
+
     n_batches = len(files) // batch_size
     n_used_imgs = n_batches * batch_size
 
@@ -178,6 +179,7 @@ def calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
 
     diff = mu1 - mu2
 
+    print("CFD1")
     # Product might be almost singular
     covmean, _ = linalg.sqrtm(sigma1.dot(sigma2), disp=False)
     if not np.isfinite(covmean).all():
@@ -187,6 +189,7 @@ def calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
         offset = np.eye(sigma1.shape[0]) * eps
         covmean = linalg.sqrtm((sigma1 + offset).dot(sigma2 + offset))
 
+    print("CFD2")
     # Numerical error might give slight imaginary component
     if np.iscomplexobj(covmean):
         if not np.allclose(np.diagonal(covmean).imag, 0, atol=1e-3):
@@ -195,7 +198,7 @@ def calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
         covmean = covmean.real
 
     tr_covmean = np.trace(covmean)
-
+    print("CFD3")
     return (diff.dot(diff) + np.trace(sigma1) +
             np.trace(sigma2) - 2 * tr_covmean)
 
@@ -235,7 +238,7 @@ def _compute_statistics_of_path(path, model, batch_size, dims, cuda):
         f.close()
     else:
         path = pathlib.Path(path)
-        files = list(path.glob('*.jpg')) + list(path.glob('*.png'))
+        files = list(path.glob('*.jpg')) + list(path.glob('*.png')) + list(path.glob('*/*.jpg')) + list(path.glob('*/*.png'))
         m, s = calculate_activation_statistics(files, model, batch_size,
                                                dims, cuda)
 
@@ -256,8 +259,14 @@ def calculate_fid_given_paths(paths, batch_size, cuda, dims):
 
     m1, s1 = _compute_statistics_of_path(paths[0], model, batch_size,
                                          dims, cuda)
+
     m2, s2 = _compute_statistics_of_path(paths[1], model, batch_size,
                                          dims, cuda)
+    print("finish to get the feature")
+    #
+    # from torchmetrics.image.fid import FrechetInceptionDistance, _compute_fid
+    # fid_value = _compute_fid(torch.tensor(m1), torch.tensor(s1), torch.tensor(m2), torch.tensor(s2))
+
     fid_value = calculate_frechet_distance(m1, s1, m2, s2)
 
     return fid_value
@@ -267,10 +276,12 @@ if __name__ == '__main__':
     #args = parser.parse_args()
     os.environ['CUDA_VISIBLE_DEVICES'] = "0"
 
-    path1 = "./results/real_B/"
-    path2 = "./results/fake_B/"
-    batch_size = 50
-    dims = 2048
+    path1 = "/data/harry/Data_generation/diffusers-main/VAESDM/Gen_results2/image"
+    path2 = "/data/harry/Data_generation/diffusers-main/VAESDM/Gen_results2/real"
+    # path1 = "/data/harry/real_B"
+    # path2 = "/data/harry/fake_B"
+    batch_size = 100
+    dims = 2048 #[64, 196, 768, 2048]
 
     fid_value = calculate_fid_given_paths([path1, path2],
                                           batch_size,

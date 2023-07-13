@@ -24,7 +24,7 @@ def load_data(
     resize_size:tuple = None, 
     subset_type:str = 'train', 
     fn_qry:str = '*/*.png',
-    random_flip:bool = True, 
+    random_flip:bool = False,
     ret_dataset:bool = True, 
     data_ld_kwargs:dict = None
 ):
@@ -123,12 +123,21 @@ class Cityscape_ds(Dataset):
         return resiz_pil_im
 
     # confirm: crop_size is the same for all of input tensor (img, inst_im, ..., etc.)
-    def __center_crop(self, pil_im, crop_size):
+    def __center_crop(self, pil_im, crop_size, contro=None):
         arr_im = np.array(pil_im)
-        crop_x = (arr_im.shape[1] - crop_size[1]) // 2
+        crop_x=0
+        if contro is not None and contro != "center":
+            if contro == "right":
+                crop_x = arr_im.shape[1] - crop_size[1]
+            elif contro == "left":
+                crop_x = 0
+            else:
+                print("error")
+        else:
+            crop_x = (arr_im.shape[1] - crop_size[1]) // 2
         return arr_im[:, crop_x: crop_x + crop_size[1]]
-        
-    def __getitem__(self, idx):
+
+    def get_data(self, idx, contro = None):
         # read img from pil format
         im_path = self.imgs_path[idx]
         img = self.__pil_read(im_path)
@@ -139,43 +148,48 @@ class Cityscape_ds(Dataset):
         # read cls and instance mask with binary mode 'L'!!
         cls_im = self.__pil_read(cls_path, read_mode='L')
         inst_im = self.__pil_read(inst_path, read_mode='L')
-        
+
         # resize img & labels
         # dwn img with better quality : https://pillow.readthedocs.io/en/stable/handbook/concepts.html#filters-comparison-table
         img = self.__ratio_resize(img, Image.BICUBIC)
         # labels resize with lower quality but better performance!
         clr_msk_im, cls_im, inst_im = \
-            self.__ratio_resize(clr_msk_im, Image.NEAREST), self.__ratio_resize(cls_im, Image.NEAREST), self.__ratio_resize(inst_im, Image.NEAREST)
+            self.__ratio_resize(clr_msk_im, Image.NEAREST), self.__ratio_resize(cls_im,
+                                                                                Image.NEAREST), self.__ratio_resize(
+                inst_im, Image.NEAREST)
 
         # assert img shape consistent
         assert img.size == clr_msk_im.size == cls_im.size == inst_im.size
 
         # center-crop (hard-code 1080, 1440 currently..)
-        sc = 1080 // self.resize_size  
-        crop_size = ( self.resize_size, 1440//sc )
+        sc = 1080 // self.resize_size
+        crop_size = (self.resize_size, 1440 // sc)
 
-        img = self.__center_crop(img, crop_size)
+        img = self.__center_crop(img, crop_size, contro)
         clr_msk_im, cls_im, inst_im = \
-            self.__center_crop(clr_msk_im, crop_size), self.__center_crop(cls_im, crop_size), self.__center_crop(inst_im, crop_size)
-        
+            self.__center_crop(clr_msk_im, crop_size, contro), self.__center_crop(cls_im, crop_size, contro), self.__center_crop(
+                inst_im, crop_size, contro)
+
         if self.random_flip and random.random() < 0.5:
             img = img[:, ::-1].copy()
             clr_msk_im = clr_msk_im[:, ::-1].copy()
-            cls_im = cls_im[:, ::-1].copy() 
-            inst_im = inst_im[:, ::-1].copy() 
+            cls_im = cls_im[:, ::-1].copy()
+            inst_im = inst_im[:, ::-1].copy()
 
-        # assert img shape consistent
-        assert img.size == clr_msk_im.size 
+            # assert img shape consistent
+        assert img.size == clr_msk_im.size
         assert cls_im.size == inst_im.size
 
-        #print(im_path)
+        # print(im_path)
         img = img.astype(np.float32) / 127.5 - 1
-        out_dict = {'path':im_path, 'label_ori':cls_im, 'label':cls_im[None, ], 
-                    'instance':inst_im[None, ], 'clr_instance':clr_msk_im[None, ]}
-        
-                    
+        out_dict = {'path': im_path, 'label_ori': cls_im, 'label': cls_im[None,],
+                    'instance': inst_im[None,], 'clr_instance': clr_msk_im[None,]}
+
         # switch to channel first format due to torch tensor..
-        return {"pixel_values":np.transpose(img, [2, 0, 1]), "label":out_dict}
+        return {"pixel_values": np.transpose(img, [2, 0, 1]), "label": out_dict}
+
+    def __getitem__(self, idx):
+        return self.get_data(idx, "left")
         
     def __len__(self):
         return len(self.imgs_path)
@@ -204,6 +218,7 @@ class Cityscape_cache(Dataset):
             x = x * Cityscape_cache.VAE_SCALE
         elif isinstance(vae_cache['x'], list):
             ret = random.randint(0, len(vae_cache['x'])-1)
+            print(len(vae_cache['x']))
             x = vae_cache['x'][ret] * Cityscape_cache.VAE_SCALE
             vae_cache['label']["segmap"] = vae_cache['label']["segmap"][ret]
         else:
@@ -215,8 +230,9 @@ class Cityscape_cache(Dataset):
     def __len__(self):
         return len(self.cache_path)
 
-# default collate function
+
 def collate_fn(examples):
+    print(len(examples))
     segmap = {}
     ret = random.randint(0, 1)
     for k in examples[0]["label"].keys():
@@ -224,20 +240,23 @@ def collate_fn(examples):
             if isinstance(examples[0]["label"][k], list):
                 segmap[k] = torch.stack([torch.from_numpy(example["label"][k][ret]) for example in examples])
             else:
-                segmap[k] = torch.stack([torch.from_numpy(example["label"][k]) for example in examples])
+                segmap[k] = torch.stack([torch.from_numpy(example["label"][k]) if isinstance(example["pixel_values"],np.ndarray) else example["pixel_values"] for example in examples])
 
             segmap[k] = segmap[k].to(memory_format=torch.contiguous_format).float()
-    
+
     if isinstance(examples[0]["pixel_values"], list):
         pixel_values = torch.stack([torch.from_numpy(example["pixel_values"][ret]) for example in examples])
     else:
         pixel_values = torch.stack([torch.from_numpy(example["pixel_values"]) for example in examples])
 
     pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
-    filename_lst = [ os.path.join(example['label']['path']) for example in examples ]
-    #print(filename_lst)
-    
+    filename_lst = [os.path.join(example['label']['path']) for example in examples]
+    # print(filename_lst)
+
     return {"pixel_values": pixel_values, "segmap": segmap, 'filename': filename_lst}
+# default collate function
+
+
 
 # unittest..
 if __name__ == "__main__":

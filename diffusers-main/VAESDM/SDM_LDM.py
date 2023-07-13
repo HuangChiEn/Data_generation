@@ -214,13 +214,13 @@ def parse_args():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default="VQVAE-SDM-learnvar-DAimage",
+        default="VQVAE-official-SDM-learnvar",
         help="The output directory where the model predictions and checkpoints will be written.",
     )
     parser.add_argument(
         "--cache_dir",
         type=str,
-        default="/data/harry/Cityscape_catch/our_VQVAE_540_resize",
+        default="/data/harry/Cityscape_catch/VQ_model_official",
         help="The directory where the downloaded models and datasets will be stored.",
     )
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
@@ -450,9 +450,14 @@ def preprocess_input(data, num_classes):
     input_semantics = input_label.scatter_(1, label_map, 1.0)
 
     # concatenate instance map if it exists
+    # if 'instance' in data:
+    #     inst_map = data['instance']
+    #     instance_edge_map = get_edges(inst_map)
+    #     input_semantics = torch.cat((input_semantics, instance_edge_map), dim=1)
     if 'instance' in data:
-        inst_map = data['instance']
-        instance_edge_map = get_edges(inst_map)
+        b_msk = (data['instance']!=0)
+        # binary mask to gpu-device and turn type to float
+        instance_edge_map = b_msk.to(data['instance'].device).float()
         input_semantics = torch.cat((input_semantics, instance_edge_map), dim=1)
 
     return input_semantics
@@ -528,8 +533,8 @@ def main():
     #                                 , steps_offset=1,trained_betas=None,clip_sample=False)
     print(noise_scheduler.variance_type)
     #vae = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae", revision=args.revision)
-    #vae = VQModel.from_pretrained("CompVis/ldm-super-resolution-4x-openimages", subfolder="vqvae", revision=args.revision)
-    vae = VQSub.from_pretrained("/data/harry/Data_generation/diffusers-main/VQVAE/SPADE_VQ_model/70ep", subfolder="vqvae")
+    vae = VQModel.from_pretrained("CompVis/ldm-super-resolution-4x-openimages", subfolder="vqvae", revision=args.revision)
+    #vae = VQSub.from_pretrained("/data/harry/Data_generation/diffusers-main/VQVAE/SPADE_VQ_model_V2/99ep", subfolder="vqvae")
     # Freeze vae
     vae.requires_grad_(False)
 
@@ -717,6 +722,8 @@ def main():
     '''
     train_dataset = load_data(
         data_dir=args.train_data_dir,
+        resize_size=args.resolution,
+        subset_type="train",
         cache_dir=args.cache_dir
     )
 
@@ -857,8 +864,8 @@ def main():
             with accelerator.accumulate(unet):
                 # Convert images to latent space
                 if not args.cache_dir:
-                    latents = vae.encode(batch["pixel_values"].to(weight_dtype)).latents #.latent_dist.sample()
-                    latents = latents * vae.config.scaling_factor
+                    latents, _, _ = vae.encode(batch["pixel_values"].to(weight_dtype))#.latents #.latent_dist.sample()
+                    latents = latents * 0.18215
                 else:
                     latents = batch["pixel_values"].to(weight_dtype)
 

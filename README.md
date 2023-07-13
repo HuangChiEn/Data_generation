@@ -137,5 +137,5 @@ python evaluations/lpips.py GENERATED_IMAGES_DIR
 ### Acknowledge
 Our code is developed based on
 [SDM](https://github.com/WeilunWang/semantic-diffusion-model)
--  We also thank [guided-diffusion](https://github.com/openai/guided-diffusion). "test_with_FID.py" in [OASIS](https://github.com/boschresearch/OASIS) for FID computation, "lpips.py" in [stargan-v2](https://github.com/clovaai/stargan-v2) for LPIPS computation.
+-  We also thank [guided-diffusion](https://github.com/openai/guided-diffusion). "test_with_FID.py" in [OASIS](W-starGAN) for FID computation, "lpips.py" in [stargan-v2](https://github.com/clovaai/stargan-v2) for LPIPS computation.
 

@@ -211,7 +211,7 @@ class SDMLDMPipeline(DiffusionPipeline):
         else:
             latents /= self.vae.config.scaling_factor#(0.18215)
             #latents /= 7.706491063029163
-            image = self.vae.decode(latents, segmap)
+            image = self.vae.decode(latents).sample
             image = (image / 2 + 0.5).clamp(0, 1)
             image = image.cpu().permute(0, 2, 3, 1).numpy()
             if output_type == "pil":

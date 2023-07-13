@@ -34,7 +34,7 @@ class DefaultDataset(data.Dataset):
 
 def get_eval_loader(root, img_size=256, batch_size=32,
                     imagenet_normalize=True, shuffle=True,
-                    num_workers=4, drop_last=False, return_path=False, test_list=None):
+                    num_workers=4, drop_last=True, return_path=False, test_list=None):
     print('Preparing DataLoader for the evaluation phase...')
     if imagenet_normalize:
         height, width = 299, 299
