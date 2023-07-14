@@ -1,6 +1,6 @@
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.vq_model import VQEncoderOutput
-from diffusers.vae import DecoderOutput
+from diffusers.models.vae import DecoderOutput
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from taming.models.hf_enc_dec import Encoder, Decoder
 from taming.models.vq_modules import VectorQuantizer2 as VectorQuantizer

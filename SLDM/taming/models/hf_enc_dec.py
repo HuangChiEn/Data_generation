@@ -1,7 +1,7 @@
 from functools import partial
 import torch
 import torch.nn as nn
-from diffusers.attention_processor import SpatialNorm
+from diffusers.models.attention_processor import SpatialNorm
 from taming.models.unet_2d_blocks import UNetSDMMidBlock2D, UNetMidBlock2D, get_up_block, get_down_block
 
 
