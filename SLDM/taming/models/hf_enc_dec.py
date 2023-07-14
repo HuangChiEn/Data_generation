@@ -1,7 +1,7 @@
 from functools import partial
 import torch
 import torch.nn as nn
-
+from diffusers.attention_processor import SpatialNorm
 from taming.models.unet_2d_blocks import UNetSDMMidBlock2D, UNetMidBlock2D, get_up_block, get_down_block
 
 
@@ -122,6 +122,7 @@ class Decoder(nn.Module):
         layers_per_block=2,
         norm_num_groups=32,
         act_fn="silu",
+        norm_type="group",  # group, spatial
         segmap_channels=34, 
         use_SPADE=True,
         **ignore_kwargs
@@ -135,6 +136,7 @@ class Decoder(nn.Module):
 
         self.use_SPADE = use_SPADE
         self.segmap_channels = segmap_channels
+
         if self.use_SPADE:
             unet_mid_blk = partial(UNetSDMMidBlock2D, segmap_channels=self.segmap_channels)
             up_blk_getter = partial(get_up_block, up_block_type='SDMUpDecoderBlock2D', segmap_channels=self.segmap_channels)
@@ -154,7 +156,7 @@ class Decoder(nn.Module):
 
         self.mid_block = None
         self.up_blocks = nn.ModuleList([])
-
+        temb_channels = in_channels if norm_type == "spatial" else None
         # mid (SPADE module)
         self.mid_block = unet_mid_blk(
             in_channels=block_out_channels[-1],
@@ -164,7 +166,7 @@ class Decoder(nn.Module):
             resnet_time_scale_shift="default",
             attn_num_head_channels=None,
             resnet_groups=norm_num_groups,
-            temb_channels=None,
+            temb_channels=temb_channels,
             segmap_channels=self.segmap_channels
         )
 
@@ -193,7 +195,10 @@ class Decoder(nn.Module):
             prev_output_channel = output_channel
 
         # out
-        self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=1e-6)
+        if norm_type == "spatial":
+            self.conv_norm_out = SpatialNorm(block_out_channels[0], temb_channels)
+        else:
+            self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=1e-6)
         self.conv_act = nn.SiLU()
         self.conv_out = nn.Conv2d(block_out_channels[0], out_channels, 3, padding=1)
 
