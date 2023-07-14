@@ -73,12 +73,10 @@ class Cityscape_ds(Dataset):
         for lab_path in (data_dir / 'gtFine' / subset).glob(fn_qry):
             if str(lab_path).endswith('_labelIds.png'):
                 self.classes.append(lab_path)
-            elif str(lab_path).endswith('_edgeMaps.png'):
+            elif str(lab_path).endswith('_instanceIds.png'):
                 self.instances.append(lab_path)
             elif str(lab_path).endswith('_color.png'):
                 self.clr_instances.append(lab_path)
-            elif str(lab_path).endswith('_instanceIds.png'):
-                continue   # instanceIds img is deprecated !!
             else:
                 warnings.warn(f"Unidentified file : {lab_path}")
         # sort lst to confirm the order
@@ -100,34 +98,6 @@ class Cityscape_ds(Dataset):
             meta_im.load()
         return meta_im.convert(read_mode)
 
-    def __ratio_resize(self, pil_im, resample_method):
-        min_len = min(*pil_im.size)
-        # directly resize wrt. scale : "ratio is kept"  or "input square image, H == W"
-        if (self.resize_size % min_len == 0) or len(set(pil_im.size)) == 1:
-            scale = self.resize_size / min_len
-            resiz_pil_im = pil_im.resize(
-                tuple(int(x * scale) for x in pil_im.size), resample=Image.BOX
-            )
-
-        ## two-stage resize to mimic the distortion of resize
-        # 1. stage : keep ratio downsampling (fast)
-        while min(*pil_im.size) >= 2 * self.resize_size:
-            pil_im = pil_im.resize(
-                tuple(x // 2 for x in pil_im.size), resample=Image.BOX
-            )
-        # 2. stage : bicubic style, carefully resize without keeping ratio
-        scale = self.resize_size / min(*pil_im.size)
-        resiz_pil_im = pil_im.resize(
-            tuple(round(x * scale) for x in pil_im.size), resample=resample_method
-        )
-        return resiz_pil_im
-
-    # confirm: crop_size is the same for all of input tensor (img, inst_im, ..., etc.)
-    def __center_crop(self, pil_im, crop_size):
-        arr_im = np.array(pil_im)
-        crop_x = (arr_im.shape[1] - crop_size[1]) // 2
-        return arr_im[:, crop_x: crop_x + crop_size[1]]
-        
     def __getitem__(self, idx):
         # read img from pil format
         im_path = self.imgs_path[idx]
@@ -140,30 +110,10 @@ class Cityscape_ds(Dataset):
         cls_im = self.__pil_read(cls_path, read_mode='L')
         inst_im = self.__pil_read(inst_path, read_mode='L')
         
-        # resize img & labels
-        # dwn img with better quality : https://pillow.readthedocs.io/en/stable/handbook/concepts.html#filters-comparison-table
-        img = self.__ratio_resize(img, Image.BICUBIC)
-        # labels resize with lower quality but better performance!
+        img = np.array(img)
         clr_msk_im, cls_im, inst_im = \
-            self.__ratio_resize(clr_msk_im, Image.NEAREST), self.__ratio_resize(cls_im, Image.NEAREST), self.__ratio_resize(inst_im, Image.NEAREST)
-
-        # assert img shape consistent
-        assert img.size == clr_msk_im.size == cls_im.size == inst_im.size
-
-        # center-crop (hard-code 1080, 1440 currently..)
-        sc = 1080 // self.resize_size  
-        crop_size = ( self.resize_size, 1440//sc )
-
-        img = self.__center_crop(img, crop_size)
-        clr_msk_im, cls_im, inst_im = \
-            self.__center_crop(clr_msk_im, crop_size), self.__center_crop(cls_im, crop_size), self.__center_crop(inst_im, crop_size)
+            np.array(clr_msk_im), np.array(cls_im), np.array(inst_im)
         
-        if self.random_flip and random.random() < 0.5:
-            img = img[:, ::-1].copy()
-            clr_msk_im = clr_msk_im[:, ::-1].copy()
-            cls_im = cls_im[:, ::-1].copy() 
-            inst_im = inst_im[:, ::-1].copy() 
-
         # assert img shape consistent
         assert img.size == clr_msk_im.size 
         assert cls_im.size == inst_im.size
@@ -172,47 +122,12 @@ class Cityscape_ds(Dataset):
         out_dict = {'path':im_path, 'label_ori':cls_im, 'label':cls_im[None, ], 
                     'instance':inst_im[None, ], 'clr_instance':clr_msk_im[None, ]}
         
-                    
         # switch to channel first format due to torch tensor..
         return {"pixel_values":np.transpose(img, [2, 0, 1]), "label":out_dict}
         
     def __len__(self):
         return len(self.imgs_path)
 
-
-class Cityscape_cache(Dataset):
-    VAE_SCALE = 0.18215
-    #VAE_SCALE = 7.706491063029163
-    def __init__(self, cache_dir, cache_file_callbk=None):
-        self.cache_path = list( (cache_dir).glob('train/*/*.pt') )
-        self.cache_file_callbk = cache_file_callbk
-        
-    def __getitem__(self, idx):
-        vae_cache = torch.load(self.cache_path[idx])
-        # customized callback to deal with cache file
-        if self.cache_file_callbk:
-            return self.cache_file_callbk(vae_cache)
-        
-        # default procedure to load the cache file for VAE & VQVAE.. 
-        if isinstance(vae_cache['x'], dict):
-            mean, std = vae_cache['x']['mean'], vae_cache['x']['std']
-            # normal_ make more efficient with std=1, mean=0 (exactly as randn) 
-            # https://pytorch.org/docs/stable/generated/torch.randn.html
-            sample = torch.cuda.FloatTensor(**mean.shape).normal_(mean=0, std=1)
-            x = mean + std * sample
-            x = x * Cityscape_cache.VAE_SCALE
-        elif isinstance(vae_cache['x'], list):
-            ret = random.randint(0, len(vae_cache['x'])-1)
-            x = vae_cache['x'][ret] * Cityscape_cache.VAE_SCALE
-            vae_cache['label']["segmap"] = vae_cache['label']["segmap"][ret]
-        else:
-            #print("error")
-            x = vae_cache['x'] * Cityscape_cache.VAE_SCALE
-
-        return {"pixel_values": x, "label": vae_cache['label']}
-
-    def __len__(self):
-        return len(self.cache_path)
 
 # default collate function
 def collate_fn(examples):

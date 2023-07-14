@@ -8,12 +8,12 @@ def preprocess_edge(inst_map, filename, subset):
     def get_edges(t):
         # zero tensor, prepare to fill with edge (1) and bg (0)
         edge = torch.ByteTensor(t.size()).zero_().to(t.device)
-        edge[:, :, :, 1:] = edge[:, :, :, 1:] | (t[:, :, :, 1:] != t[:, :, :, :-1])
-        edge[:, :, :, :-1] = edge[:, :, :, :-1] | (t[:, :, :, 1:] != t[:, :, :, :-1])
-        edge[:, :, 1:, :] = edge[:, :, 1:, :] | (t[:, :, 1:, :] != t[:, :, :-1, :])
-        edge[:, :, :-1, :] = edge[:, :, :-1, :] | (t[:, :, 1:, :] != t[:, :, :-1, :])
+        edge[:, :, :, 1:] = edge[:, :, :, 1:] | (t[:, :, :, 1:] != t[:, :, :, :-1]).byte()
+        edge[:, :, :, :-1] = edge[:, :, :, :-1] | (t[:, :, :, 1:] != t[:, :, :, :-1]).byte()
+        edge[:, :, 1:, :] = edge[:, :, 1:, :] | (t[:, :, 1:, :] != t[:, :, :-1, :]).byte()
+        edge[:, :, :-1, :] = edge[:, :, :-1, :] | (t[:, :, 1:, :] != t[:, :, :-1, :]).byte()
         return edge.float()
-
+    
     instance_edge_map = get_edges(inst_map)
     # saving coarse-edge-image
     for inst_msk, fn_w_ext in zip(instance_edge_map, filename):
@@ -33,13 +33,15 @@ def preprocess_edge(inst_map, filename, subset):
         else:
             raise ValueError
 
+        #breakpoint()
         #               ( 1 x H x W -> H x W ) 
         cv2.imwrite(path, inst_msk.numpy()[0]*255.)
+        
 
 
 def get_cfg_str():
     return '''
-    gen_set = 'val'
+    gen_set = 'train'
     [dataset]
         data_dir = '/data1/dataset/Cityscapes'
         resize_size = 540
@@ -51,7 +53,7 @@ def get_cfg_str():
         [dataset.data_ld_kwargs]
             shuffle = False@bool
             batch_size = 8
-            num_workers = 4
+            num_workers = 6
     '''
 
 
