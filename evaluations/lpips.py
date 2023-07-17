@@ -170,7 +170,7 @@ def calculate_lpips_given_paths(root_path, img_size=256, batch_size=50, test_lis
 if __name__ == '__main__':
     # python -m metrics.lpips --paths PATH_REAL PATH_FAKE
     parser = argparse.ArgumentParser()
-    parser.add_argument('--root_path', type=str, default="/data/harry/Data_generation/diffusers-main/VAESDM/Gen_results2", help='paths to real and fake images')#"/data/harry/Data_generation/diffusers-main/VAESDM/Gen_results1"
+    parser.add_argument('--root_path', type=str, default="/data/harry/Data_generation/diffusers-main/VAESDM/Gen_results4", help='paths to real and fake images')#"/data/harry/Data_generation/diffusers-main/VAESDM/Gen_results1"
     parser.add_argument('--test_list', type=str, default=None, help='paths to real and fake images')
     parser.add_argument('--img_size', type=int, default=256, help='image resolution')
     parser.add_argument('--batch_size', type=int, default=50, help='batch size to use')

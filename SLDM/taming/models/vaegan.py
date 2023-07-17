@@ -190,4 +190,4 @@ class VAEModel(pl.LightningModule):
         epoch = self.current_epoch  # type: ignore
         if epoch % self.frequency == 0:
             # self.log_images()
-            self.vae.save_pretrained(os.path.join(f"./NOSPADE_VAE_model/{epoch}ep", "vqvae"))
+            self.vae.save_pretrained(os.path.join(f"./SPADE_VQ_model_512/{epoch}ep", "vqvae"))
