@@ -15,6 +15,7 @@ Pipe_dispatcher = {
     'SDMLDMPipeline' : SDMLDMPipeline
 }
 
+
 def numpy_to_pil(images):
     """
     Convert a numpy image or a batch of images to a PIL image.
@@ -186,7 +187,6 @@ if __name__ == "__main__":
     from torchvision.utils import save_image
     from easy_configer.Configer import Configer
     from accelerate import PartialState  # Can also be Accelerator or AcceleratorStaet
-
     distributed_state = PartialState()
     cfger = Configer()
     cfger.cfg_from_str( get_cfg_str() )
