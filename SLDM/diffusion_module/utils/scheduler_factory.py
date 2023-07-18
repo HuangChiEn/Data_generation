@@ -47,7 +47,7 @@ class DPMSolverMultistepScheduler_variant(DPMSolverMultistepScheduler):
         predicted_variance: Union[torch.FloatTensor, np.ndarray],
         return_dict: bool = True,
         s_noise: float = 1.0,
-    ) -> Union[SchedulerOutput, Tuple]:
+    ):
         """
         Args:
             model_output (Union[torch.FloatTensor, np.ndarray]): Direct output from learned diffusion model.
@@ -145,7 +145,7 @@ class DPMSolverMultistepScheduler_variant(DPMSolverMultistepScheduler):
         if not return_dict:
             return (prev_sample, variance)
 
-        return SchedulerOutput(prev_sample=prev_sample, variance=variance)
+        #return SchedulerOutput(prev_sample=prev_sample, variance=variance)
 
     # ... Rest of the class implementation ...
 
