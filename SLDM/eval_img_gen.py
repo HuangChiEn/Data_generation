@@ -195,13 +195,8 @@ if __name__ == "__main__":
     del vae.encoder
 
     pipe = get_pipeline(**cfger.pipe, unet=unet, vae=vae)
-<<<<<<< HEAD
     
     pipe = scheduler_setup(pipe, cfger.scheduler_type)  #, from_config = "CompVis/stable-diffusion-v1-4")
-=======
-
-    #pipe = scheduler_setup(pipe, cfger.scheduler_type)  #, from_config = "CompVis/stable-diffusion-v1-4")
->>>>>>> 6df11a046cb64ce1b974aa94a025eacfdb6f3971
     pipe.to(distributed_state.device)
 
     # Assume two processes

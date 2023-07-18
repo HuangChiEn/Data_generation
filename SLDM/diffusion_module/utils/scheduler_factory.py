@@ -136,7 +136,7 @@ class ModifiedUniPCScheduler(UniPCMultistepScheduler):
 
         return prev_t
     
-    def _get_variance(self, t, predicted_variance=None, variance_type="learned"):
+    def _get_variance(self, t, predicted_variance=None, variance_type="fixed_small_log"):
         prev_t = self.previous_timestep(t)
 
         alpha_prod_t = self.alphas_cumprod[t]
@@ -224,8 +224,8 @@ def scheduler_setup(pipe : DiffusionPipeline = None, scheduler_type : str = 'Uni
     # #pipe.scheduler = DDPMScheduler(beta_schedule="linear", variance_type="learned_range")
     # print(pipe.scheduler)
     print("Scheduler type in Scheduler_factory.py is Hard-coded to modifyUniPC, Please change it back to AutoDetect functionality if you want to change scheudler")
-    #pipe.scheduler = ModifiedUniPCScheduler()
-    pipe.scheduler = ModifiedDDPMScheduler(beta_schedule="linear", variance_type="fixed_small_log")
+    pipe.scheduler = ModifiedUniPCScheduler()
+    # pipe.scheduler = ModifiedDDPMScheduler(beta_schedule="linear", variance_type="fixed_small_log")
     
     #pipe.scheduler = DDPMScheduler.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="scheduler")
     #pipe.scheduler._get_variance = _get_variance
