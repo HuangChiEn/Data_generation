@@ -153,7 +153,7 @@ class SDMLDMPipeline(DiffusionPipeline):
             [`~pipelines.ImagePipelineOutput`] or `tuple`: [`~pipelines.model.ImagePipelineOutput`] if `return_dict` is
             True, otherwise a `tuple. When returning a tuple, the first element is a list with the generated images.
         """
-        self.unet.config.sample_size = (135,180)
+        self.unet.config.sample_size = (64, 128) # (135,180)
         if not isinstance(self.unet.config.sample_size, tuple):
             self.unet.config.sample_size = (self.unet.config.sample_size, self.unet.config.sample_size)
 
@@ -184,13 +184,17 @@ class SDMLDMPipeline(DiffusionPipeline):
             latent_model_input = self.scheduler.scale_model_input(latents, t)
             # predict the noise residual
             noise_prediction = self.unet(latent_model_input, segmap, t).sample
+            print(f'noise shp : {noise_prediction.shape}\n')
             # compute the previous noisy sample x_t -> x_t-1
 
             if s > 1.0:
                 model_output_zero = self.unet(latent_model_input, torch.zeros_like(segmap), t).sample
                 noise_prediction[:, :3] = model_output_zero[:, :3] + s * (noise_prediction[:, :3] - model_output_zero[:, :3])
 
-            latents = self.scheduler.step(noise_prediction, t, latents, **extra_kwargs).prev_sample
+            # when apply different scheduler, mean only !!
+            latents = self.scheduler.step(noise_prediction[:, :3], t, latents, **extra_kwargs).prev_sample
+
+            #latents = self.scheduler.step(noise_prediction, t, latents, **extra_kwargs).prev_sample
 
             if every_step_save is not None:
                 if (i+1) % every_step_save == 0:

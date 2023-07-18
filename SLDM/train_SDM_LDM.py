@@ -707,19 +707,6 @@ def main():
         eps=args.adam_epsilon,
     )
 
-    '''
-    train_dataset = load_data(
-        dataset_mode="cityscapes",
-        data_dir=args.train_data_dir,
-        image_size=args.resolution,
-        random_crop=False,
-        random_flip=args.random_flip,
-        is_train=True,
-        use_vae=True,
-        mask_emb="resize",
-        catch_path=args.cache_dir,
-    )
-    '''
     train_dataset = load_data(
         data_dir=args.train_data_dir,
         resize_size=args.resolution,
@@ -870,10 +857,11 @@ def main():
                     latents = batch["pixel_values"].to(weight_dtype)
 
                 segmap = preprocess_input(batch["segmap"], args.segmap_channels) if "segmap" not in batch["segmap"].keys() else batch["segmap"]["segmap"]
-                #print(latents.shape, segmap.shape)
-
+                
+                # TODO : Support GMM noise distribution
                 # Sample noise that we'll add to the latents
                 noise = torch.randn_like(latents)
+                # TODO : move this into noise_sampler.py
                 if args.noise_offset:
                     # https://www.crosslabs.org//blog/diffusion-with-offset-noise
                     noise += args.noise_offset * torch.randn(

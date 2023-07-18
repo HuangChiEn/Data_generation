@@ -15,19 +15,6 @@ Pipe_dispatcher = {
     'SDMLDMPipeline' : SDMLDMPipeline
 }
 
-
-def numpy_to_pil(images):
-    """
-    Convert a numpy image or a batch of images to a PIL image.
-    """
-    if images.ndim == 3:
-        images = images[None, ...]
-    images = (images * 255).round().astype("uint8")
-    pil_images = [Image.fromarray(image) for image in images]
-
-    return pil_images
-
-# TODO : this should be placed in cityscape dataset py file
 def preprocess_input(data, num_classes):
     # utils to get the edge of image
     def get_edges(t):
@@ -73,9 +60,11 @@ def get_dataloader(data_dir, image_size, batch_size, num_workers, fn_qry, subset
         collate_fn=collate_fn,
         batch_size=batch_size,
         num_workers=num_workers,
-        ) for d in dataset]
+        drop_last=False
+        ) for d in dataset
+    ]
 
-def get_diffusion_modules(unet_path, numk_ckpt=0, vae_type=None):
+def get_diffusion_modules(unet_path, numk_ckpt=0, vae_type=None, vae_path=None):
     # Load pretrained unet from local..
     if ".pt" in unet_path:
         unet = UNetModel(
@@ -110,11 +99,13 @@ def get_diffusion_modules(unet_path, numk_ckpt=0, vae_type=None):
     # Load hugging face VAE on cuda with fp16..
     if vae_type == 'KL':
         vae = AutoencoderKL.from_pretrained('CompVis/stable-diffusion-v1-4', subfolder='vae').to('cuda').to(torch.float16)
-    elif vae_type == 'VQ':
-        #vae = VQModel.from_pretrained('CompVis/ldm-super-resolution-4x-openimages', subfolder='vqvae').to('cuda').to(torch.float16)
-        vae = VQSub.from_pretrained('/data/harry/Data_generation/diffusers-main/VQVAE/SPADE_VQ_model_V2/70ep', subfolder='vqvae').to('cuda').to(torch.float16)
+    elif vae_type == 'VQ_offi':
+        vae = VQModel.from_pretrained('CompVis/ldm-super-resolution-4x-openimages', subfolder='vqvae').to('cuda').to(torch.float16)
+    elif vae_type == 'VQ' and vae_path:
+        vae = VQSub.from_pretrained(vae_path, subfolder='vqvae').to('cuda').to(torch.float16)
     else:
-        raise ValueError(f"Unsupport VAE type {vae_type}")
+        err_msg = f'Customized VQ, vae_path should be given!' if vae_type == 'VQ' else f"Unsupport VAE type {vae_type}"
+        raise ValueError(err_msg)
     
     return unet, vae
 
@@ -137,25 +128,31 @@ def get_pipeline(pipe_type, pipe_path=None, unet=None, vae=None):
 def get_cfg_str():
     return '''
     seed = 42
-    num_inference_steps = 1000
-    scheduler_type = 'DDPM'
-    save_dir = 'Gen_results3'
+    num_inference_steps = 25   # 1000
+    scheduler_type = 'UniPC'   # 'DDPM'
+    save_dir = 'Gen_results/exp1'
     num_save_im = 500
-    s = 1.2@float    # 1. equal @float
+    s = 1.2@float    
     
     [dataloader]
         data_dir = '/data1/dataset/Cityscapes'
-        image_size = 540
+        image_size = 256
         batch_size = 8
-        num_workers = 8
+        num_workers = 4
+        num_processes = 2
         subset_type = 'val'
         fn_qry = '*/*.png'   # qry-syntax to skip DA_Data [a-z]*/*.png
 
     [diff_mod]
-        unet_path = '/data/harry/Data_generation/diffusers-main/VAESDM/ourVQVAE-SDM-learnvar'
+        # exp 0 
+        unet_path = '/data/harry/Data_generation/diffusers-main/VAESDM/VQVAE-official-SDM-learnvar-256'
+        
+        #unet_path = '/data/harry/Data_generation/diffusers-main/VAESDM/ourVQVAE-SDM-learnvar'
         #unet_path = '/data/harry/Data_generation/OUTPUT/Cityscapes270-SDM-256CH-500epoch/model120000.pt'
+        
         numk_ckpt = 0
-        vae_type = 'VQ'
+        vae_type = 'VQ_offi'
+        #vae_path = '/data/harry/Data_generation/diffusers-main/VQVAE/SPADE_VQ_model_V2/70ep'
 
     [pipe]
         pipe_type = 'SDMLDMPipeline'
@@ -184,6 +181,7 @@ def test_car_image():
     return mask_
 
 if __name__ == "__main__":
+    import os
     from torchvision.utils import save_image
     from easy_configer.Configer import Configer
     from accelerate import PartialState  # Can also be Accelerator or AcceleratorStaet
@@ -198,7 +196,8 @@ if __name__ == "__main__":
     del vae.encoder
 
     pipe = get_pipeline(**cfger.pipe, unet=unet, vae=vae)
-    pipe = scheduler_setup(pipe, cfger.scheduler_type)#, from_config = "CompVis/stable-diffusion-v1-4")
+    
+    #pipe = scheduler_setup(pipe, cfger.scheduler_type)  #, from_config = "CompVis/stable-diffusion-v1-4")
     pipe.to(distributed_state.device)
 
     # Assume two processes
@@ -212,7 +211,7 @@ if __name__ == "__main__":
     makedirs(f"{cfger.save_dir}/image", exist_ok=True)
     makedirs(f"{cfger.save_dir}/real", exist_ok=True)
 
-    num_itrs = (cfger.num_save_im // cfger.dataloader['batch_size'])
+    #num_itrs = (cfger.num_save_im // cfger.dataloader['batch_size'])
     
     # Generate the image : 
     # we put it in main block, 
@@ -225,19 +224,16 @@ if __name__ == "__main__":
         #     break
         clr_msks = [ clr_inst.permute(0, 3, 1, 2) / 255. for clr_inst in batch["segmap"]['clr_instance'] ]
         real = batch['pixel_values']
-        #real = [ clr_inst.permute(0, 3, 1, 2) / 255. for clr_inst in batch['pixel_values'] ]
+        print(f'segmap shp : {batch["segmap"].keys()}')
         segmap = preprocess_input(batch["segmap"], num_classes=34)
         segmap = segmap.to(distributed_state.device).to(torch.float16)
         images = pipe(segmap=segmap, generator=generator, num_inference_steps=cfger.num_inference_steps, s = cfger.s, batch_size=segmap.shape[0]).images
 
-        for x, image, clr_msk, fn_w_ext in zip(real, images, clr_msks, batch['filename']):
-            ...
-            #torchvision.utils.save_image(x,f"{cfger.save_dir}/real/{fn_w_ext}")
-            # numpy_to_pil(x).save(f"{cfger.save_dir}/real/{fn_w_ext}")
-            # print(x.shape)
-            # [2, 0, 1]
-            #save_image((x+1.)/2., f"{cfger.save_dir}/real/{fn_w_ext}")
-            #image.save(f"{cfger.save_dir}/image/{fn_w_ext}")
-            #save_image(clr_msk, f"{cfger.save_dir}/mask/{fn_w_ext}")
+        for x, image, clr_msk, filename in zip(real, images, clr_msks, batch['filename']):
+            fn_w_ext = os.path.basename(filename)
+            # denorm image x : [-1, 1] -> [0, 1]
+            save_image((x+1.)/2., f"{cfger.save_dir}/real/{fn_w_ext}")
+            image.save(f"{cfger.save_dir}/image/{fn_w_ext}")
+            save_image(clr_msk, f"{cfger.save_dir}/mask/{fn_w_ext}")
 
             

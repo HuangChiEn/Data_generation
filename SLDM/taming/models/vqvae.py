@@ -1,12 +1,16 @@
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.vq_model import VQEncoderOutput
-from diffusers.vae import DecoderOutput
+from diffusers.models.vae import DecoderOutput
 from diffusers.configuration_utils import ConfigMixin, register_to_config
+import torch.nn as nn
+from typing import Tuple, Optional
+
+# try:
 from taming.models.hf_enc_dec import Encoder, Decoder
 from taming.models.vq_modules import VectorQuantizer2 as VectorQuantizer
-import torch.nn as nn
-
-from typing import Tuple, Optional
+# except :
+#     from hf_enc_dec import Encoder, Decoder
+#     from vq_modules import VectorQuantizer2 as VectorQuantizer
 
 class VQSub(ModelMixin, ConfigMixin):
     @register_to_config
@@ -27,7 +31,7 @@ class VQSub(ModelMixin, ConfigMixin):
         norm_type: str = "group",
         norm_num_groups: int = 32,
         segmap_channels: int = 35,
-        use_SPADE: bool = True
+        use_SPADE: bool = False
     ):
         super().__init__()
 
@@ -85,8 +89,7 @@ class VQSub(ModelMixin, ConfigMixin):
         else:
             quant = h
 
-        quant2 = self.post_quant_conv(quant)
-        dec = self.decoder(quant2, quant if self.config.norm_type == "spatial" else None)
+        quant = self.post_quant_conv(quant)
         if self.use_SPADE:
             dec = self.decoder(quant, segmap)
         else:
@@ -112,7 +115,7 @@ class VQSub(ModelMixin, ConfigMixin):
         return dec
 
     def forward(self, input, segmap=None):
-        quant, diff, _ = self.encode(input)
+        quant, diff, _ = self.encode(input, train=True)
         dec = self.decode(quant, segmap)
         return dec, diff
 
@@ -121,4 +124,5 @@ class VQSub(ModelMixin, ConfigMixin):
 
 
 if __name__ == "__main__":
-    ...
+    vq = VQSub.from_pretrained("CompVis/ldm-super-resolution-4x-openimages", subfolder="vqvae")
+    print(vq)

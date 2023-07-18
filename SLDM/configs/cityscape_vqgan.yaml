@@ -13,7 +13,7 @@ model:
       norm_num_groups: 32
       num_vq_embeddings: 8192   # modified!
       out_channels: 3 
-      sample_size: 256          # modified!
+      sample_size: 512          # modified!
       segmap_channels: 35       # because we add 34 + 1 (edge info)
       use_SPADE: True
       up_block_types: ["UpDecoderBlock2D",]
@@ -30,20 +30,20 @@ model:
 data:
   params:
     data_dir: /data1/dataset/Cityscapes
-    image_size: 540
-    batch_size: 6
+    image_size: 512
+    batch_size: 4
     num_workers: 8
 
 ds_1:
   data_dir: /data1/dataset/Cityscapes
-  image_size: 540
-  batch_size: 6
+  image_size: 512
+  batch_size: 4
   num_workers: 8
 
 ds_2:
   data_dir: /data/joseph/kitti_ds
-  image_size: 540
-  batch_size: 6
+  image_size: 512
+  batch_size: 4
   num_workers: 8
 
     

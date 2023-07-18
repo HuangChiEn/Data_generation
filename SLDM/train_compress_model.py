@@ -358,7 +358,7 @@ def main():
         resize_size=config.data.params.image_size,
         subset_type='val',
         ret_dataset=False,
-        data_ld_kwargs={'batch_size': 6, 'num_workers': 8}
+        data_ld_kwargs={'batch_size': config.ds_1.batch_size, 'num_workers': 8}
     )
 
 

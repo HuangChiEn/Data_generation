@@ -201,7 +201,7 @@ class Cityscape_ds(Dataset):
         return {"pixel_values": np.transpose(img, [2, 0, 1]), "label": out_dict}
 
     def __getitem__(self, idx):
-        return self.get_data(idx, "left")
+        return self.get_data(idx, "center")
         
     def __len__(self):
         return len(self.imgs_path)
@@ -244,7 +244,7 @@ class Cityscape_cache(Dataset):
 
 
 def collate_fn(examples):
-    print(len(examples))
+    #print(len(examples))
     segmap = {}
     ret = random.randint(0, 1)
     for k in examples[0]["label"].keys():

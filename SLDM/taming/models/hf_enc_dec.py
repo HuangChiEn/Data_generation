@@ -1,9 +1,11 @@
 from functools import partial
 import torch
 import torch.nn as nn
-from diffusers.attention_processor import SpatialNorm
-from taming.models.unet_2d_blocks import UNetSDMMidBlock2D, UNetMidBlock2D, get_up_block, get_down_block
-
+#from diffusers.models.attention_processor import SpatialNorm
+try:
+    from taming.models.unet_2d_blocks import UNetSDMMidBlock2D, UNetMidBlock2D, get_up_block, get_down_block
+except:
+    from unet_2d_blocks import UNetSDMMidBlock2D, UNetMidBlock2D, get_up_block, get_down_block
 
 class Encoder(nn.Module):
     def __init__(
@@ -19,7 +21,8 @@ class Encoder(nn.Module):
         **ignore_kwargs
     ):
         super().__init__()
-        down_block_types*=len(block_out_channels)
+        if len(down_block_types) != len(block_out_channels):
+            down_block_types*=len(block_out_channels)
         self.layers_per_block = layers_per_block
 
         self.conv_in = torch.nn.Conv2d(
@@ -35,6 +38,8 @@ class Encoder(nn.Module):
         
         # down
         output_channel = block_out_channels[0]
+        print(block_out_channels)
+        print(down_block_types)
         for i, down_block_type in enumerate(down_block_types):
             input_channel = output_channel
             output_channel = block_out_channels[i]
@@ -195,10 +200,11 @@ class Decoder(nn.Module):
             prev_output_channel = output_channel
 
         # out
-        if norm_type == "spatial":
-            self.conv_norm_out = SpatialNorm(block_out_channels[0], temb_channels)
-        else:
-            self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=1e-6)
+        # if norm_type == "spatial":
+        #     self.conv_norm_out = SpatialNorm(block_out_channels[0], temb_channels)
+        # else:
+
+        self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=1e-6)
         self.conv_act = nn.SiLU()
         self.conv_out = nn.Conv2d(block_out_channels[0], out_channels, 3, padding=1)
 
@@ -241,7 +247,7 @@ class Decoder(nn.Module):
                     sample = up_block(sample, segmap)
             else:
                 for up_block in self.up_blocks:
-                    print(up_block.named_children)
+                    #print(up_block.named_children)
                     sample = up_block(sample)
 
         #print(sample)
