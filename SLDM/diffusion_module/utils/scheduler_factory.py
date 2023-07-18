@@ -176,8 +176,8 @@ def scheduler_setup(pipe : DiffusionPipeline = None, scheduler_type : str = 'Uni
     #pipe.scheduler = scheduler_factory[scheduler_type](**kwargs) if kwargs \
     #                    else scheduler_factory[scheduler_type](sch_cfg)
     
-    pipe.scheduler = DPMSolverSinglestepScheduler()
-    #pipe.scheduler = DDPMScheduler(beta_schedule="linear", variance_type="learned_range")
+    #pipe.scheduler = DPMSolverSinglestepScheduler()
+    pipe.scheduler = DDPMScheduler(beta_schedule="linear", variance_type="learned_range")
     print(pipe.scheduler)
     #pipe.scheduler = DDPMScheduler.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="scheduler")
     #pipe.scheduler._get_variance = _get_variance

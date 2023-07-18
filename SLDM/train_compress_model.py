@@ -14,7 +14,8 @@ from pytorch_lightning.strategies.ddp import DDPStrategy
 
 from dataset import cityscape_ds
 from dataset.cityscape_ds import collate_fn
-
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
 def get_obj_from_str(string, reload=False):
     module, cls = string.rsplit(".", 1)
@@ -327,7 +328,7 @@ def main():
     config = OmegaConf.merge(*configs, cli)
 
     from pytorch_lightning.loggers import WandbLogger
-    wandb_logger = WandbLogger(name="SPADE VQModel V2")
+    wandb_logger = WandbLogger(name="Fine tune SPADE VQModel official")
     
     from torch.utils.data import ConcatDataset
 
@@ -364,7 +365,7 @@ def main():
 
     model = instantiate_from_config(config.model)
 
-    trainer = pl.Trainer(devices=1, precision=16, logger=wandb_logger, max_epochs=100)#strategy=DDPStrategy(find_unused_parameters=True)
+    trainer = pl.Trainer(devices=1, precision="16-mixed", logger=wandb_logger, max_epochs=20)#strategy=DDPStrategy(find_unused_parameters=True)
     trainer.fit(model, train_loader, val_loader)#, ckpt_path="/data/harry/Data_generation/diffusers-main/VQVAE/lightning_logs/hm2zmxps/checkpoints/epoch=58-step=58528.ckpt")
 
 if __name__ == "__main__":

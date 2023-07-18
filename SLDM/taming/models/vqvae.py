@@ -31,7 +31,7 @@ class VQSub(ModelMixin, ConfigMixin):
         norm_type: str = "group",
         norm_num_groups: int = 32,
         segmap_channels: int = 35,
-        use_SPADE: bool = False
+        use_SPADE: bool = True
     ):
         super().__init__()
 
@@ -91,10 +91,10 @@ class VQSub(ModelMixin, ConfigMixin):
 
         quant = self.post_quant_conv(quant)
         if self.use_SPADE:
-            dec = self.decoder(quant, segmap)
+            dec = self.decoder(quant.detach(), segmap)
         else:
             dec = self.decoder(quant)
-        return dec
+        return DecoderOutput(sample=dec)
 
     def encode_latent(self, x):
         h = self.encoder(x)
@@ -116,7 +116,7 @@ class VQSub(ModelMixin, ConfigMixin):
 
     def forward(self, input, segmap=None):
         quant, diff, _ = self.encode(input, train=True)
-        dec = self.decode(quant, segmap)
+        dec = self.decode(quant, segmap).sample
         return dec, diff
 
     def get_last_layer(self):

@@ -36,11 +36,25 @@ class VQModel(pl.LightningModule):
         super().__init__()
         self.learning_rate = 1e-4
         self.loss = instantiate_from_config(lossconfig)
+        self.use_SPADE = ddconfig["use_SPADE"]
+
+
+
         # convert omegaconf to python serilizeable obj
         ddconfig = OmegaConf.to_object(ddconfig)
         self.disc_conditional = OmegaConf.to_object(lossconfig)["params"]["disc_conditional"]
-        
+        self.finetune = OmegaConf.to_object(lossconfig)["params"]["finetune"]
+
         self.vqvae = VQSub(**ddconfig)
+        if self.finetune:
+            print("load the official weight from : CompVis/ldm-super-resolution-4x-openimages")
+            self.vqvae =  self.vqvae.from_pretrained("CompVis/ldm-super-resolution-4x-openimages", subfolder="vqvae", low_cpu_mem_usage = False)
+            self.vqvae.train()
+            for param in self.vqvae.parameters():
+                param.requires_grad = False
+            for param in self.vqvae.decoder.parameters():
+                param.requires_grad = True
+
         self.automatic_optimization = False
 
         self.frequency = 1
@@ -52,7 +66,8 @@ class VQModel(pl.LightningModule):
             self.register_buffer("colorize", torch.randn(3, colorize_nlabels, 1, 1))
         if monitor is not None:
             self.monitor = monitor
-        self.use_SPADE = ddconfig["use_SPADE"]
+
+
         # print("use spade:", self.use_SPADE)
 
     def init_from_ckpt(self, path, ignore_keys=list()):
@@ -88,7 +103,11 @@ class VQModel(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = self.get_input(batch, self.image_key)
         xrec, qloss = self(x, y)
-        opt_ae, opt_disc = self.optimizers()
+
+        if self.finetune:
+            opt_ae = self.optimizers()
+        else:
+            opt_ae, opt_disc = self.optimizers()
 
         # autoencode
         aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
@@ -99,16 +118,17 @@ class VQModel(pl.LightningModule):
         opt_ae.zero_grad()
         self.manual_backward(aeloss)
         opt_ae.step()
-        
-        # discriminator
-        discloss, log_dict_disc = self.loss(qloss, x.detach(), xrec, 1, self.global_step,
-                                        last_layer=self.get_last_layer(), cond=y if self.disc_conditional else None, split="train")
-        #self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
-        self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
 
-        opt_disc.zero_grad()
-        self.manual_backward(discloss)
-        opt_disc.step()
+        if not self.finetune:
+            # discriminator
+            discloss, log_dict_disc = self.loss(qloss, x.detach(), xrec, 1, self.global_step,
+                                            last_layer=self.get_last_layer(), cond=y if self.disc_conditional else None, split="train")
+            #self.log("train/discloss", discloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+            self.log_dict(log_dict_disc, prog_bar=False, logger=True, on_step=True, on_epoch=True)
+
+            opt_disc.zero_grad()
+            self.manual_backward(discloss)
+            opt_disc.step()
 
     def validation_step(self, batch, batch_idx):
         x, y = self.get_input(batch, self.image_key)
@@ -130,11 +150,16 @@ class VQModel(pl.LightningModule):
 
     def configure_optimizers(self):
         lr = self.learning_rate
-        opt_ae = torch.optim.Adam(self.vqvae.parameters(),
-                                  lr=lr, betas=(0.5, 0.9))
-        opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
-                                    lr=lr, betas=(0.5, 0.9))
-        return [opt_ae, opt_disc], []
+        if self.finetune:
+            opt_ae = torch.optim.Adam(self.vqvae.decoder.parameters(),
+                                      lr=lr, betas=(0.5, 0.9))
+            return [opt_ae], []
+        else:
+            opt_ae = torch.optim.Adam(self.vqvae.parameters(),
+                                      lr=lr, betas=(0.5, 0.9))
+            opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
+                                        lr=lr, betas=(0.5, 0.9))
+            return [opt_ae, opt_disc], []
 
     def get_last_layer(self):
         return self.vqvae.decoder.conv_out.weight
@@ -201,4 +226,4 @@ class VQModel(pl.LightningModule):
         epoch = self.current_epoch # type: ignore
         if epoch % self.frequency == 0:
             #self.log_images()
-            self.vqvae.save_pretrained(os.path.join(f"./SPADE_VQ_model_V2/{epoch}ep", "vqvae"))
+            self.vqvae.save_pretrained(os.path.join(f"./SPADE_VQ_model_official/{epoch}ep", "vqvae"))
