@@ -128,16 +128,16 @@ def get_pipeline(pipe_type, pipe_path=None, unet=None, vae=None):
 def get_cfg_str():
     return '''
     seed = 42
-    num_inference_steps = 25   # 1000
-    scheduler_type = 'UniPC'   # 'DDPM'
-    save_dir = 'Gen_results/exp1'
+    num_inference_steps = 100   # 1000
+    scheduler_type = 'modifiedUniPC'   # ['DDPM' 'UniPC' 'modifiedUniPC']
+    save_dir = '/data/rick/DataEngine/Data_generation/SLDM/Gen_results/Modify_UniPC'
     num_save_im = 500
     s = 1.2@float    
     
     [dataloader]
         data_dir = '/data1/dataset/Cityscapes'
         image_size = 256
-        batch_size = 8
+        batch_size = 2
         num_workers = 4
         num_processes = 2
         subset_type = 'val'
@@ -197,7 +197,7 @@ if __name__ == "__main__":
 
     pipe = get_pipeline(**cfger.pipe, unet=unet, vae=vae)
     
-    #pipe = scheduler_setup(pipe, cfger.scheduler_type)  #, from_config = "CompVis/stable-diffusion-v1-4")
+    pipe = scheduler_setup(pipe, cfger.scheduler_type)  #, from_config = "CompVis/stable-diffusion-v1-4")
     pipe.to(distributed_state.device)
 
     # Assume two processes
