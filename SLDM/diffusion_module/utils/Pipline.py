@@ -181,6 +181,7 @@ class SDMLDMPipeline(DiffusionPipeline):
 
         step_latent = []
         for i, t in enumerate(self.progress_bar(self.scheduler.timesteps)):
+    
             latent_model_input = self.scheduler.scale_model_input(latents, t)
             # predict the noise residual
             noise_prediction = self.unet(latent_model_input, segmap, t).sample
@@ -191,9 +192,9 @@ class SDMLDMPipeline(DiffusionPipeline):
                 noise_prediction[:, :3] = model_output_zero[:, :3] + s * (noise_prediction[:, :3] - model_output_zero[:, :3])
 
             # when apply different scheduler, mean only !!
-            latents = self.scheduler.step(noise_prediction[:, :3], t, latents, **extra_kwargs).prev_sample
+            #latents = self.scheduler.step(noise_prediction[:, :3], t, latents, **extra_kwargs).prev_sample
 
-            #latents = self.scheduler.step(noise_prediction, t, latents, **extra_kwargs).prev_sample
+            latents = self.scheduler.step(noise_prediction, t, latents, **extra_kwargs).prev_sample
 
             if every_step_save is not None:
                 if (i+1) % every_step_save == 0:

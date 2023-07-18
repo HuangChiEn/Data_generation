@@ -7,8 +7,7 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 from diffusers.schedulers.scheduling_utils import SchedulerOutput
 from diffusers.schedulers.scheduling_ddpm import DDPMSchedulerOutput
-from diffusers.utils import randn_tensor
-import diffusers
+from diffusers.utils import randn_tensor, BaseOutput
 
 
 ### Testing the DDPM Scheduler for Variant 
@@ -47,7 +46,10 @@ class ModifiedDDPMScheduler(DDPMScheduler):
         prev_t = self.previous_timestep(t)
 
         if model_output.shape[1] == sample.shape[1] * 2 and self.variance_type in ["learned", "learned_range"]:
+            print("Conidtion is trigger")
+       
             model_output, predicted_variance = torch.split(model_output, sample.shape[1], dim=1)
+            # [2,3, 64, 128]
         else:
             predicted_variance = None
 
@@ -63,6 +65,7 @@ class ModifiedDDPMScheduler(DDPMScheduler):
         # "predicted x_0" of formula (15) from https://arxiv.org/pdf/2006.11239.pdf
         if self.config.prediction_type == "epsilon":
             pred_original_sample = (sample - beta_prod_t ** (0.5) * model_output) / alpha_prod_t ** (0.5)
+        
         elif self.config.prediction_type == "sample":
             pred_original_sample = model_output
         elif self.config.prediction_type == "v_prediction":
@@ -99,28 +102,31 @@ class ModifiedDDPMScheduler(DDPMScheduler):
             )
             if self.variance_type == "fixed_small_log":
                 variance = self._get_variance(t, predicted_variance=predicted_variance) * variance_noise
+            
             elif self.variance_type == "learned_range":
                 variance = self._get_variance(t, predicted_variance=predicted_variance)
                 variance = torch.exp(0.5 * variance) * variance_noise
+
             else:
                 variance = (self._get_variance(t, predicted_variance=predicted_variance) ** 0.5) * variance_noise
-        # breakpoint()
+        
         pred_prev_sample = pred_prev_sample + variance
-
+        print(pred_prev_sample.shape)
         if not return_dict:
             return (pred_prev_sample,)
 
         return DDPMSchedulerOutput(prev_sample=pred_prev_sample, pred_original_sample=pred_original_sample)
+   
 
-
-## Rick's code 
 class ModifiedUniPCScheduler(UniPCMultistepScheduler):
     '''
     This is the modification of UniPCMultistepScheduler, which is the same as UniPCMultistepScheduler except for the _get_variance function.
     '''
-    def __init__(self, *args, **kwargs):
+    def __init__(self, variance_type: str = "fixed_small", *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.custom_timesteps = False
+        self.variance_type=variance_type
+        self.config.timestep_spacing="leading"
     def previous_timestep(self, timestep):
         if self.custom_timesteps:
             index = (self.timesteps == timestep).nonzero(as_tuple=True)[0][0]
@@ -136,7 +142,7 @@ class ModifiedUniPCScheduler(UniPCMultistepScheduler):
 
         return prev_t
     
-    def _get_variance(self, t, predicted_variance=None, variance_type="fixed_small_log"):
+    def _get_variance(self, t, predicted_variance=None, variance_type="learned_range"):
         prev_t = self.previous_timestep(t)
 
         alpha_prod_t = self.alphas_cumprod[t]
@@ -170,25 +176,43 @@ class ModifiedUniPCScheduler(UniPCMultistepScheduler):
         return variance
 
     def step(self, model_output: torch.FloatTensor, timestep: int, sample: torch.FloatTensor, return_dict: bool = True) -> Union[SchedulerOutput, Tuple]:
+        
         if model_output.shape[1] == sample.shape[1] * 2 and self.variance_type in ["learned", "learned_range"]:
+            print("condition using predicted_variance is trigger")
             model_output, predicted_variance = torch.split(model_output, sample.shape[1], dim=1)
         else:
             predicted_variance = None
 
         super_output = super().step(model_output, timestep, sample, return_dict=False)
         prev_sample = super_output[0]
-
+        # breakpoint()
+        variance = 0
         if timestep > 0:
             device = model_output.device
-            variance = self._get_variance(timestep, predicted_variance=predicted_variance)
-            
-            breakpoint()
-            prev_sample = prev_sample + (variance ** 0.5)
+            variance_noise = randn_tensor(
+                model_output.shape, generator=None, device=device, dtype=model_output.dtype
+            )
+            if self.variance_type == "fixed_small_log":
+                variance = self._get_variance(timestep, predicted_variance=predicted_variance) * variance_noise
+            elif self.variance_type == "learned_range":
+                # breakpoint()
+                variance = self._get_variance(timestep, predicted_variance=predicted_variance)
+                variance = torch.exp(0.5 * variance) * variance_noise
+                # breakpoint()
+            else:
+                variance = (self._get_variance(timestep, predicted_variance=predicted_variance) ** 0.5) * variance_noise
+
+      
+        # breakpoint()
+        print("time step is ", timestep)
+        prev_sample = prev_sample  + variance
 
         if not return_dict:
             return (prev_sample,)
+        
+        return DDPMSchedulerOutput(prev_sample=prev_sample,pred_original_sample=prev_sample) 
 
-        return SchedulerOutput(prev_sample=prev_sample)
+        #return SchedulerOutput(prev_sample=prev_sample)
 
 
 def build_proc(sch_cfg=None, _sch=None, **kwargs):
@@ -224,13 +248,12 @@ def scheduler_setup(pipe : DiffusionPipeline = None, scheduler_type : str = 'Uni
     # #pipe.scheduler = DDPMScheduler(beta_schedule="linear", variance_type="learned_range")
     # print(pipe.scheduler)
     print("Scheduler type in Scheduler_factory.py is Hard-coded to modifyUniPC, Please change it back to AutoDetect functionality if you want to change scheudler")
-    pipe.scheduler = ModifiedUniPCScheduler()
-    # pipe.scheduler = ModifiedDDPMScheduler(beta_schedule="linear", variance_type="fixed_small_log")
+    pipe.scheduler = ModifiedUniPCScheduler(variance_type="learned_range", )
+    # pipe.scheduler = ModifiedDDPMScheduler(beta_schedule="linear", variance_type="learned_range")
     
     #pipe.scheduler = DDPMScheduler.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="scheduler")
     #pipe.scheduler._get_variance = _get_variance
     return pipe
-
 
 # unittest of scheduler..
 if __name__ == "__main__":

@@ -131,7 +131,7 @@ def get_pipeline(pipe_type, pipe_path=None, unet=None, vae=None):
 def get_cfg_str():
     return '''
     seed = 42
-    num_inference_steps = 100   # 1000
+    num_inference_steps = 50   # 1000
     scheduler_type = 'modifiedUniPC'   # ['DDPM' 'UniPC' 'modifiedUniPC']
     save_dir = '/data/rick/DataEngine/Data_generation/SLDM/Gen_results/Modify_UniPC'
     num_save_im = 500
@@ -148,7 +148,7 @@ def get_cfg_str():
 
     [diff_mod]
         unet_path = '/data/harry/Data_generation/diffusers-main/VAESDM/VQVAE-official-SDM-learnvar-256'
-        #unet_path = '/data/harry/Data_generation/OUTPUT/Cityscapes270-SDM-256CH-500epoch/model120000.pt'
+        # unet_path = '/data/harry/Data_generation/OUTPUT/Cityscapes270-SDM-256CH-500epoch/model120000.pt'
         
         numk_ckpt = 0
         vae_type = 'VQ'
