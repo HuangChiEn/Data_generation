@@ -78,8 +78,8 @@ class Cityscape_ds(Dataset):
             # Loading path for instance
             elif str(lab_path).endswith('_edgeMaps.png'):
                 self.instances.append(lab_path)
-            #elif str(lab_path).endswith('_crEdgeMaps.png'):
-            #    self.instances.append(lab_path)
+            elif str(lab_path).endswith('_crEdgeMaps.png'):
+                continue
             elif str(lab_path).endswith('_instanceIds.png'):
                 continue   
             # Loading path for color instance

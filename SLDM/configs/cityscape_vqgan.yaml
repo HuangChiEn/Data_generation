@@ -21,6 +21,7 @@ model:
     lossconfig:
       target: taming.modules.losses.vqperceptual.VQLPIPSWithDiscriminator
       params:
+        finetune: True
         disc_conditional: False
         disc_in_channels: 3     # because we add 34 + 1 (edge info)
         disc_start: 6251

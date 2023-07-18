@@ -8,7 +8,7 @@ from dataset.cityscape_ds import load_data, collate_fn
 from diffusion_module.utils.scheduler_factory import scheduler_setup
 from taming.models.vqvae import VQSub
 import cv2
-from PIL import Image
+import os
 Pipe_dispatcher = {
     'LDMPipeline' : LDMPipeline, 
     'SDMPipeline' : SDMPipeline,
@@ -52,7 +52,9 @@ def get_dataloader(data_dir, image_size, batch_size, num_workers, fn_qry, subset
         fn_qry=fn_qry
     )
     num_data_pre = int(len(train_dataset) / num_processes)
-    dataset = torch.utils.data.random_split(train_dataset, [num_data_pre for _ in range(num_processes-1)] + [len(train_dataset) - num_data_pre*(num_processes-1)])
+    #dataset = torch.utils.data.random_split(train_dataset, [num_data_pre for _ in range(num_processes-1)] + [len(train_dataset) - num_data_pre*(num_processes-1)])
+
+    dataset = [torch.utils.data.Subset(train_dataset, range(id*num_data_pre ,(id+1)*num_data_pre)) for id in range(num_processes-1)] + [torch.utils.data.Subset(train_dataset, range((num_processes-1)*num_data_pre, len(train_dataset)))]
     print("split dataset size", [len(d) for d in dataset])
     #train_dataset1,  train_dataset2= torch.utils.data.random_split(train_dataset, [250, 250])
     return [ torch.utils.data.DataLoader(
@@ -60,37 +62,36 @@ def get_dataloader(data_dir, image_size, batch_size, num_workers, fn_qry, subset
         collate_fn=collate_fn,
         batch_size=batch_size,
         num_workers=num_workers,
-        drop_last=False
-        ) for d in dataset
-    ]
+        ) for d in dataset]
+
 
 def get_diffusion_modules(unet_path, numk_ckpt=0, vae_type=None, vae_path=None):
     # Load pretrained unet from local..
     if ".pt" in unet_path:
         unet = UNetModel(
-        image_size=(270, 360),
-        in_channels=3,
-        model_channels=256,
-        out_channels=3*2,
-        num_res_blocks=2,
-        attention_resolutions=(8,16,32),
-        dropout=0,
-        channel_mult=(1, 1, 2, 4, 4),
-        num_heads= 64,
-        num_head_channels= -1,
-        num_heads_upsample= -1,
-        use_scale_shift_norm=True,
-        resblock_updown=True,
-        use_new_attention_order=False,
-        num_classes=35,
-        use_checkpoint=True,
+            image_size=(270, 360),
+            in_channels=3,
+            model_channels=256,
+            out_channels=3 * 2,
+            num_res_blocks=2,
+            attention_resolutions=(8, 16, 32),
+            dropout=0,
+            channel_mult=(1, 1, 2, 4, 4),
+            num_heads=64,
+            num_head_channels=-1,
+            num_heads_upsample=-1,
+            use_scale_shift_norm=True,
+            resblock_updown=True,
+            use_new_attention_order=False,
+            num_classes=35,
+            use_checkpoint=True,
         )
         unet.load_state_dict(torch.load(unet_path))
         unet = unet.to(torch.float16)
     elif numk_ckpt == 0:
         unet = UNetModel.from_pretrained(unet_path, subfolder='unet').to('cuda').to(torch.float16)
     else:
-        unet_path = path.join(unet_path, f"checkpoint-{numk_ckpt*1000}")
+        unet_path = path.join(unet_path, f"checkpoint-{numk_ckpt * 1000}")
         unet = UNetModel.from_pretrained(unet_path, subfolder='unet').to('cuda').to(torch.float16)
 
     if not vae_type:
@@ -98,15 +99,17 @@ def get_diffusion_modules(unet_path, numk_ckpt=0, vae_type=None, vae_path=None):
 
     # Load hugging face VAE on cuda with fp16..
     if vae_type == 'KL':
-        vae = AutoencoderKL.from_pretrained('CompVis/stable-diffusion-v1-4', subfolder='vae').to('cuda').to(torch.float16)
+        vae = AutoencoderKL.from_pretrained('CompVis/stable-diffusion-v1-4', subfolder='vae').to('cuda').to(
+            torch.float16)
     elif vae_type == 'VQ_offi':
-        vae = VQModel.from_pretrained('CompVis/ldm-super-resolution-4x-openimages', subfolder='vqvae').to('cuda').to(torch.float16)
+        vae = VQModel.from_pretrained('CompVis/ldm-super-resolution-4x-openimages', subfolder='vqvae').to('cuda').to(
+            torch.float16)
     elif vae_type == 'VQ' and vae_path:
         vae = VQSub.from_pretrained(vae_path, subfolder='vqvae').to('cuda').to(torch.float16)
     else:
         err_msg = f'Customized VQ, vae_path should be given!' if vae_type == 'VQ' else f"Unsupport VAE type {vae_type}"
         raise ValueError(err_msg)
-    
+
     return unet, vae
 
 def get_pipeline(pipe_type, pipe_path=None, unet=None, vae=None):
@@ -144,15 +147,12 @@ def get_cfg_str():
         fn_qry = '*/*.png'   # qry-syntax to skip DA_Data [a-z]*/*.png
 
     [diff_mod]
-        # exp 0 
         unet_path = '/data/harry/Data_generation/diffusers-main/VAESDM/VQVAE-official-SDM-learnvar-256'
-        
-        #unet_path = '/data/harry/Data_generation/diffusers-main/VAESDM/ourVQVAE-SDM-learnvar'
         #unet_path = '/data/harry/Data_generation/OUTPUT/Cityscapes270-SDM-256CH-500epoch/model120000.pt'
         
         numk_ckpt = 0
-        vae_type = 'VQ_offi'
-        #vae_path = '/data/harry/Data_generation/diffusers-main/VQVAE/SPADE_VQ_model_V2/70ep'
+        vae_type = 'VQ'
+        vae_path = '/data/harry/Data_generation/SLDM/SPADE_VQ_model_official/19ep'
 
     [pipe]
         pipe_type = 'SDMLDMPipeline'
@@ -181,7 +181,6 @@ def test_car_image():
     return mask_
 
 if __name__ == "__main__":
-    import os
     from torchvision.utils import save_image
     from easy_configer.Configer import Configer
     from accelerate import PartialState  # Can also be Accelerator or AcceleratorStaet
@@ -196,8 +195,13 @@ if __name__ == "__main__":
     del vae.encoder
 
     pipe = get_pipeline(**cfger.pipe, unet=unet, vae=vae)
+<<<<<<< HEAD
     
     pipe = scheduler_setup(pipe, cfger.scheduler_type)  #, from_config = "CompVis/stable-diffusion-v1-4")
+=======
+
+    #pipe = scheduler_setup(pipe, cfger.scheduler_type)  #, from_config = "CompVis/stable-diffusion-v1-4")
+>>>>>>> 6df11a046cb64ce1b974aa94a025eacfdb6f3971
     pipe.to(distributed_state.device)
 
     # Assume two processes

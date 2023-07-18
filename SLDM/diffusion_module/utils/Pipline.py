@@ -184,7 +184,6 @@ class SDMLDMPipeline(DiffusionPipeline):
             latent_model_input = self.scheduler.scale_model_input(latents, t)
             # predict the noise residual
             noise_prediction = self.unet(latent_model_input, segmap, t).sample
-            print(f'noise shp : {noise_prediction.shape}\n')
             # compute the previous noisy sample x_t -> x_t-1
 
             if s > 1.0:
@@ -215,7 +214,7 @@ class SDMLDMPipeline(DiffusionPipeline):
         else:
             latents /= self.vae.config.scaling_factor#(0.18215)
             #latents /= 7.706491063029163
-            image = self.vae.decode(latents).sample
+            image = self.vae.decode(latents, segmap).sample
             image = (image / 2 + 0.5).clamp(0, 1)
             image = image.cpu().permute(0, 2, 3, 1).numpy()
             if output_type == "pil":

@@ -276,8 +276,8 @@ if __name__ == '__main__':
     #args = parser.parse_args()
     os.environ['CUDA_VISIBLE_DEVICES'] = "0"
 
-    path1 = "/data/harry/Data_generation/diffusers-main/VAESDM/Gen_results4/image"
-    path2 = "/data/harry/Data_generation/diffusers-main/VAESDM/Gen_results4/real"
+    path1 = "/data/joseph/Data_generation/SLDM/Gen_results/exp0/image"
+    path2 = "/data/joseph/Data_generation/SLDM/Gen_results/exp0/real"
     # path1 = "/data/harry/real_B"
     # path2 = "/data/harry/fake_B"
     batch_size = 100
